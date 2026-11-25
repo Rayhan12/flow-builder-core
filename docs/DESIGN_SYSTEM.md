@@ -1,5 +1,11 @@
 # Flow Builder Design System
 
+## 0. References (read first)
+
+- **Primary reference: Taktile's decision-flow editor** (https://taktile.com, product pages such as https://taktile.com/product/rules). Match its feel as closely as we can from public material: a calm light canvas, compact white node cards with a coloured icon tile per node type, a top-to-bottom flow with orthogonal connectors, a "+" to insert a step on any connector, a right side configuration panel, a slim top toolbar, grouping of nodes into segments, and short inline help text on each component. Node types to mirror in spirit: rule, decision table, scorecard, split, assignment, model, integration, code. We copy the layout ideas only. **Never** use the Taktile logo, name, colours as branding, images or code.
+- **Secondary reference: Refero Styles, Brex "White concrete, single ember"** (https://styles.refero.design/style/b58d92f6-68a8-4358-8fc9-6ea58e6d483b) for tokens: Inter type, flat surfaces, hairline borders, one accent. Browse https://styles.refero.design/ for extra component ideas. Reference only, no brand assets.
+- Target feel: polished, precise and a bit edgy. Crisp 1px lines, tight type, exact alignment, high contrast selection states.
+
 Reference style: **Brex, "White concrete, single ember"** from Refero Styles
 (https://styles.refero.design/style/b58d92f6-68a8-4358-8fc9-6ea58e6d483b).
 Browse more patterns at https://styles.refero.design/ when you need ideas for a component.
@@ -160,3 +166,35 @@ Text contrast at least 4.5:1. Every icon button has an `aria-label` and tooltip.
   --color-chrome-dark: #000710;
 }
 ```
+
+## 10. Canvas and editor details (Taktile-like)
+
+**Grid**
+- Default: dot grid, 16px gap, 1px dots in `#d5d7de` (dark: `#2a2f36`), on `--color-surface-2`. Every 5th dot slightly darker (`#c2c5cf`) for a major grid feel.
+- Option in the view menu: line grid (16px minor at 4% Ink, 80px major at 8% Ink) or no grid.
+- Snap to grid on by default (16px). Node sizes are multiples of 16 so edges line up. Hold Alt to drag without snapping.
+
+**Alignment guides**
+- While dragging, show 1px accent (Ember at 70%) guide lines when the node's left, centre, right, top, middle or bottom lines up with a nearby node (within 6px), and snap to it. Show equal spacing hints (small distance badges) when gaps match.
+
+**Edges and handles**
+- Orthogonal smoothstep edges with 8px corner radius, 1.5px `#8b8d98`, small filled arrow. Hover: 2px Ink. Selected: 2px accent.
+- Flow runs top to bottom by default (inputs on top, outputs at bottom). Decision branches leave from the bottom, spread evenly, each with a small label chip.
+- On edge hover, show a 20px round "+" button at the midpoint to insert a node between the two.
+- Handles: 10px circles, Paper fill, 1.5px border; hidden until node hover or selection; turn accent when a connection can drop.
+- Edge labels: Paper chip, 1px border, 12px/500, radius 6px. Double click to edit.
+
+**Node card**
+- Width 256px (16px multiples), radius 12px, 1px border, Paper. Header: 32px icon tile (radius 8px, tint background, solid icon 16px), title 14px/600 Ink, kind label 11px/500 uppercase tracking 0.06em Pewter above the title. Body: 2 line description 13px Graphite, then compact key/value rows (for example "IF score >= 650", "GET /credit-report") in 12px mono on Fog with 6px radius.
+- Selected: 2px accent ring (outside the border), header icon tile turns solid with white icon.
+- Error or invalid: 1px red border and a small red dot in the header.
+
+**Toolbar**
+- Slim top toolbar, 48px, icon buttons 32px with tooltips, grouped with 1px dividers: undo/redo | zoom out, zoom %, zoom in, fit | layout | align and distribute (only when 2+ selected) | grid toggle | search. Right side: save state, Import/Export, AI, theme, avatar.
+- A floating bottom-left mini toolbar (zoom and fit) and bottom-right minimap with 12px radius and shadow-float.
+
+**Side panel**
+- Right, 360px. Header with node icon tile, editable title, kind badge, close button. Tabs: Settings, Look, Notes. Inputs follow section 6. Inline help line under each field (12px Pewter) like Taktile's inline docs.
+
+**Palette**
+- Left, 264px, grouped sections: Flow (start, end, step, group), Logic (decision, rule or score, split later), Data (mapping, integration), Other (note). Each item: icon tile, name, one-line help.
