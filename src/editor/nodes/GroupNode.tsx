@@ -1,10 +1,11 @@
 import { NodeResizer, type NodeProps } from '@xyflow/react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
+import { memo } from 'react'
 import { useEditorStore } from '../../store/editorStore'
 import type { FlowNode } from '../flowTypes'
 import { FlowNodeShell } from './FlowNodeShell'
 
-export function GroupNode(props: NodeProps<FlowNode>) {
+function GroupNodeInner(props: NodeProps<FlowNode>) {
   const replaceNode = useEditorStore((s) => s.replaceNode)
   const node = props.data.diagramNode
   if (node.kind !== 'group') return null
@@ -41,3 +42,5 @@ export function GroupNode(props: NodeProps<FlowNode>) {
     </>
   )
 }
+
+export const GroupNode = memo(GroupNodeInner)

@@ -1,8 +1,9 @@
 import type { NodeProps } from '@xyflow/react'
+import { memo } from 'react'
 import type { FlowNode } from '../flowTypes'
 import { FlowNodeShell } from './FlowNodeShell'
 
-export function RuleNode(props: NodeProps<FlowNode>) {
+function RuleNodeInner(props: NodeProps<FlowNode>) {
   const node = props.data.diagramNode
   const data = node.kind === 'rule' ? node.data : null
   const count = data?.rules.length ?? 0
@@ -15,3 +16,5 @@ export function RuleNode(props: NodeProps<FlowNode>) {
     </FlowNodeShell>
   )
 }
+
+export const RuleNode = memo(RuleNodeInner)

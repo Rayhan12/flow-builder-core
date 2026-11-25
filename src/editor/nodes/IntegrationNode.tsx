@@ -1,8 +1,9 @@
 import type { NodeProps } from '@xyflow/react'
+import { memo } from 'react'
 import type { FlowNode } from '../flowTypes'
 import { FlowNodeShell } from './FlowNodeShell'
 
-export function IntegrationNode(props: NodeProps<FlowNode>) {
+function IntegrationNodeInner(props: NodeProps<FlowNode>) {
   const node = props.data.diagramNode
   const data = node.kind === 'integration' ? node.data : null
   return (
@@ -16,3 +17,5 @@ export function IntegrationNode(props: NodeProps<FlowNode>) {
     </FlowNodeShell>
   )
 }
+
+export const IntegrationNode = memo(IntegrationNodeInner)

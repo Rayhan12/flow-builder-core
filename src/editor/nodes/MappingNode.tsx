@@ -1,8 +1,9 @@
 import type { NodeProps } from '@xyflow/react'
+import { memo } from 'react'
 import type { FlowNode } from '../flowTypes'
 import { FlowNodeShell } from './FlowNodeShell'
 
-export function MappingNode(props: NodeProps<FlowNode>) {
+function MappingNodeInner(props: NodeProps<FlowNode>) {
   const node = props.data.diagramNode
   const count = node.kind === 'mapping' ? node.data.mappings.length : 0
   return (
@@ -13,3 +14,5 @@ export function MappingNode(props: NodeProps<FlowNode>) {
     </FlowNodeShell>
   )
 }
+
+export const MappingNode = memo(MappingNodeInner)

@@ -1,5 +1,5 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react'
-import { createElement, type CSSProperties, type ReactNode } from 'react'
+import { createElement, memo, type CSSProperties, type ReactNode } from 'react'
 import { resolveColor } from '../colors'
 import type { FlowNode } from '../flowTypes'
 import { getLucideIcon } from '../icons'
@@ -15,7 +15,7 @@ type Props = NodeProps<FlowNode> & {
   groupStyle?: boolean
 }
 
-export function FlowNodeShell({
+function FlowNodeShellInner({
   data,
   selected,
   children,
@@ -118,3 +118,5 @@ export function FlowNodeShell({
     </div>
   )
 }
+
+export const FlowNodeShell = memo(FlowNodeShellInner)

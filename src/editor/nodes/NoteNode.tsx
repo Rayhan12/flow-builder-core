@@ -1,8 +1,9 @@
 import type { NodeProps } from '@xyflow/react'
+import { memo } from 'react'
 import type { FlowNode } from '../flowTypes'
 import { FlowNodeShell } from './FlowNodeShell'
 
-export function NoteNode(props: NodeProps<FlowNode>) {
+function NoteNodeInner(props: NodeProps<FlowNode>) {
   const node = props.data.diagramNode
   const text = node.kind === 'note' ? node.data.text : ''
   return (
@@ -11,3 +12,5 @@ export function NoteNode(props: NodeProps<FlowNode>) {
     </FlowNodeShell>
   )
 }
+
+export const NoteNode = memo(NoteNodeInner)

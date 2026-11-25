@@ -1,8 +1,9 @@
 import type { NodeProps } from '@xyflow/react'
+import { memo } from 'react'
 import type { FlowNode } from '../flowTypes'
 import { FlowNodeShell } from './FlowNodeShell'
 
-export function StepNode(props: NodeProps<FlowNode>) {
+function StepNodeInner(props: NodeProps<FlowNode>) {
   const data = props.data.diagramNode.kind === 'step' ? props.data.diagramNode.data : undefined
   return (
     <FlowNodeShell {...props}>
@@ -10,3 +11,5 @@ export function StepNode(props: NodeProps<FlowNode>) {
     </FlowNodeShell>
   )
 }
+
+export const StepNode = memo(StepNodeInner)
