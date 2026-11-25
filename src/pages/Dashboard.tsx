@@ -1,4 +1,4 @@
-import { FileText, FolderPlus, Palette, Pencil, Plus, Trash2 } from 'lucide-react'
+import { FileText, Palette, Pencil, Plus, Trash2 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import type { AiCreateHandler } from '../ai/createFromPrompt'
@@ -118,7 +118,6 @@ export function DashboardPage({ onGenerate }: DashboardProps) {
           <p className="page-status">Loading projects...</p>
         ) : projects.length === 0 ? (
           <EmptyState
-            icon={FolderPlus}
             title="No projects yet"
             hint="Projects group related diagrams. Create one to get started."
             action={

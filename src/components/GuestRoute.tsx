@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { Navigate } from 'react-router-dom'
+import { LogoMark } from '../assets/brand'
 import { useAuth } from '../auth/useAuth'
 
 /** Redirects signed-in users away from login/signup. */
@@ -9,7 +10,8 @@ export function GuestRoute({ children }: { children: ReactNode }) {
   if (loading) {
     return (
       <div className="page-loading" role="status">
-        Loading...
+        <LogoMark size={32} title="" className="page-loading-mark" />
+        <span>Loading...</span>
       </div>
     )
   }

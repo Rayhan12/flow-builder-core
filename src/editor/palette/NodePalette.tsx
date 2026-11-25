@@ -1,4 +1,5 @@
-import { PanelLeftClose, PanelLeftOpen, Search, Workflow } from 'lucide-react'
+import { PanelLeftClose, PanelLeftOpen, Search } from 'lucide-react'
+import { LogoMark } from '../../assets/brand'
 import { useCallback, useEffect, useMemo, useState, type DragEvent } from 'react'
 import type { NodeKind } from '../../schema'
 import { resolveColor } from '../colors'
@@ -83,7 +84,7 @@ export function NodePalette({ onAdd, diagramTitle = 'Untitled diagram' }: Props)
       <div className="palette-header">
         {!collapsed ? (
           <div className="palette-breadcrumb">
-            <Workflow size={14} aria-hidden className="palette-breadcrumb-icon" />
+            <LogoMark size={14} title="" className="palette-breadcrumb-icon" />
             <div className="palette-breadcrumb-text">
               <span className="palette-breadcrumb-project">Diagrams</span>
               <span className="palette-breadcrumb-diagram" title={diagramTitle}>
@@ -93,7 +94,7 @@ export function NodePalette({ onAdd, diagramTitle = 'Untitled diagram' }: Props)
           </div>
         ) : (
           <span className="palette-rail-brand" aria-hidden>
-            <Workflow size={16} strokeWidth={2} />
+            <LogoMark size={16} title="" />
           </span>
         )}
         <button

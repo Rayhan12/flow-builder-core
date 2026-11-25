@@ -9,11 +9,11 @@ import {
   PanelLeftOpen,
   Settings,
   Sparkles,
-  Workflow,
 } from 'lucide-react'
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Link, NavLink, useLocation, useMatch } from 'react-router-dom'
 import { useAppData } from '../app/useAppData'
+import { LogoWordmark } from '../assets/brand'
 import { useAuth } from '../auth/useAuth'
 import { isEditableKeyboardTarget } from '../editor/keyboard'
 import { editorPath } from '../lib/format'
@@ -149,8 +149,7 @@ export function AppSidebar({ variant = 'app' }: AppSidebarProps) {
     >
       <div className="app-nav-head">
         <Link to="/" className="app-nav-brand" aria-label="Flow Builder home" data-tooltip="Flow Builder">
-          <Workflow className="brand-icon" aria-hidden size={20} strokeWidth={2} />
-          <span className="app-nav-brand-name">Flow Builder</span>
+          <LogoWordmark markSize={20} markOnly={collapsed} className="app-nav-logo" />
         </Link>
         <button
           type="button"
