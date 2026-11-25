@@ -26,7 +26,9 @@ test.describe('Flow Builder smoke', () => {
 
     await page.locator('.palette-item', { hasText: 'Step' }).first().click()
     await expect(page.getByText('Empty canvas')).toHaveCount(0)
-    await expect(page.locator('.flow-node').first()).toBeVisible()
+    await expect(page.locator('.react-flow__node')).toHaveCount(1)
+    await expect(page.getByRole('heading', { name: 'Node' })).toBeVisible()
+    await expect(page.locator('.side-panel input').first()).toHaveValue('Step')
   })
 
   test('login page is reachable', async ({ page }) => {
