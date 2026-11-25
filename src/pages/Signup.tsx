@@ -1,18 +1,22 @@
+import { Eye, EyeOff } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 import { authErrorMessage } from '../auth/authErrors'
 import { AuthLayout } from '../components/AuthLayout'
+import { GoogleMark } from '../components/auth/GoogleMark'
 
 export function SignupPage() {
-  const { signUp } = useAuth()
+  const { signUp, signInWithGoogle } = useAuth()
   const navigate = useNavigate()
 
   const [displayName, setDisplayName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [googleLoading, setGoogleLoading] = useState(false)
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
@@ -33,6 +37,21 @@ export function SignupPage() {
       setSubmitting(false)
     }
   }
+
+  async function onGoogle() {
+    setError(null)
+    setGoogleLoading(true)
+    try {
+      await signInWithGoogle()
+      navigate('/', { replace: true })
+    } catch (err) {
+      setError(authErrorMessage(err))
+    } finally {
+      setGoogleLoading(false)
+    }
+  }
+
+  const busy = submitting || googleLoading
 
   return (
     <AuthLayout
@@ -71,22 +90,47 @@ export function SignupPage() {
           />
         </label>
 
-        <label className="field">
-          <span>Password</span>
-          <input
-            type="password"
-            name="password"
-            autoComplete="new-password"
-            required
-            minLength={6}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="At least 6 characters"
-          />
-        </label>
+        <div className="field">
+          <label htmlFor="signup-password">Password</label>
+          <div className="field-password">
+            <input
+              id="signup-password"
+              type={showPassword ? 'text' : 'password'}
+              name="password"
+              autoComplete="new-password"
+              required
+              minLength={6}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="At least 6 characters"
+            />
+            <button
+              type="button"
+              className="btn btn-ghost btn-icon field-password-toggle"
+              onClick={() => setShowPassword((v) => !v)}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+            >
+              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
+        </div>
 
-        <button type="submit" className="btn btn-primary" disabled={submitting}>
+        <button type="submit" className="btn btn-primary" disabled={busy}>
           {submitting ? 'Creating account...' : 'Create account'}
+        </button>
+
+        <div className="auth-divider" role="separator">
+          <span>or</span>
+        </div>
+
+        <button
+          type="button"
+          className="btn btn-secondary auth-google-btn"
+          onClick={() => void onGoogle()}
+          disabled={busy}
+        >
+          <GoogleMark />
+          {googleLoading ? 'Continuing...' : 'Continue with Google'}
         </button>
       </form>
 

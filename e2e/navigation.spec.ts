@@ -6,7 +6,7 @@ async function signUp(page: Page, label: string) {
   await page.goto('/signup')
   await page.getByLabel('Name (optional)').fill(label)
   await page.getByLabel('Email').fill(email)
-  await page.getByLabel('Password').fill(password)
+  await page.locator('input[name="password"]').fill(password)
   await page.getByRole('button', { name: 'Create account' }).click()
   await expect(page.getByRole('heading', { level: 1 })).toContainText(/Good (morning|afternoon|evening)/, {
     timeout: 15_000,

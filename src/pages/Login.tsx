@@ -1,11 +1,13 @@
+import { Eye, EyeOff } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 import { authErrorMessage } from '../auth/authErrors'
 import { AuthLayout } from '../components/AuthLayout'
+import { GoogleMark } from '../components/auth/GoogleMark'
 
 export function LoginPage() {
-  const { signIn } = useAuth()
+  const { signIn, signInWithGoogle, resetPassword } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const from =
@@ -16,12 +18,17 @@ export function LoginPage() {
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [info, setInfo] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [googleLoading, setGoogleLoading] = useState(false)
+  const [resetting, setResetting] = useState(false)
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
     setError(null)
+    setInfo(null)
     setSubmitting(true)
     try {
       await signIn(email, password)
@@ -33,6 +40,40 @@ export function LoginPage() {
     }
   }
 
+  async function onGoogle() {
+    setError(null)
+    setInfo(null)
+    setGoogleLoading(true)
+    try {
+      await signInWithGoogle()
+      navigate(from, { replace: true })
+    } catch (err) {
+      setError(authErrorMessage(err))
+    } finally {
+      setGoogleLoading(false)
+    }
+  }
+
+  async function onForgotPassword() {
+    setError(null)
+    setInfo(null)
+    if (!email.trim()) {
+      setError('Enter your email address first.')
+      return
+    }
+    setResetting(true)
+    try {
+      await resetPassword(email)
+      setInfo('Password reset email sent. Check your inbox.')
+    } catch (err) {
+      setError(authErrorMessage(err))
+    } finally {
+      setResetting(false)
+    }
+  }
+
+  const busy = submitting || googleLoading || resetting
+
   return (
     <AuthLayout
       title="Sign in"
@@ -42,6 +83,11 @@ export function LoginPage() {
         {error ? (
           <p className="form-error" role="alert">
             {error}
+          </p>
+        ) : null}
+        {info ? (
+          <p className="form-success" role="status">
+            {info}
           </p>
         ) : null}
 
@@ -58,22 +104,58 @@ export function LoginPage() {
           />
         </label>
 
-        <label className="field">
-          <span>Password</span>
-          <input
-            type="password"
-            name="password"
-            autoComplete="current-password"
-            required
-            minLength={6}
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Your password"
-          />
-        </label>
+        <div className="field">
+          <label htmlFor="login-password">Password</label>
+          <div className="field-password">
+            <input
+              id="login-password"
+              type={showPassword ? 'text' : 'password'}
+              name="password"
+              autoComplete="current-password"
+              required
+              minLength={6}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Your password"
+            />
+            <button
+              type="button"
+              className="btn btn-ghost btn-icon field-password-toggle"
+              onClick={() => setShowPassword((v) => !v)}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+            >
+              {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
+        </div>
 
-        <button type="submit" className="btn btn-primary" disabled={submitting}>
+        <div className="auth-form-row">
+          <button
+            type="button"
+            className="auth-link-btn"
+            onClick={() => void onForgotPassword()}
+            disabled={busy}
+          >
+            {resetting ? 'Sending reset...' : 'Forgot password?'}
+          </button>
+        </div>
+
+        <button type="submit" className="btn btn-primary" disabled={busy}>
           {submitting ? 'Signing in...' : 'Sign in'}
+        </button>
+
+        <div className="auth-divider" role="separator">
+          <span>or</span>
+        </div>
+
+        <button
+          type="button"
+          className="btn btn-secondary auth-google-btn"
+          onClick={() => void onGoogle()}
+          disabled={busy}
+        >
+          <GoogleMark />
+          {googleLoading ? 'Continuing...' : 'Continue with Google'}
         </button>
       </form>
 

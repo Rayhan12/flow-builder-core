@@ -10,7 +10,7 @@ test.describe('Flow Builder smoke', () => {
 
     await page.getByLabel('Name (optional)').fill('Smoke Tester')
     await page.getByLabel('Email').fill(email)
-    await page.getByLabel('Password').fill(password)
+    await page.locator('input[name="password"]').fill(password)
     await page.getByRole('button', { name: 'Create account' }).click()
 
     // Dashboard: greeting plus the default project card.
