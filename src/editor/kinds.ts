@@ -4,13 +4,15 @@ import {
   CircleDot,
   CircleStop,
   Database,
+  Frame,
   GitBranch,
   Layers,
   Plug,
   Scale,
+  Square,
   StickyNote,
 } from 'lucide-react'
-import type { DiagramNode, NodeKind } from '../schema'
+import { emptyRuleMatch, type DiagramNode, type NodeKind } from '../schema'
 import type { DataColorKey } from './colors'
 
 export type KindMeta = {
@@ -95,6 +97,30 @@ export const KIND_META: Record<NodeKind, KindMeta> = {
     defaultColor: 'gray',
     defaultIcon: 'book-open',
   },
+  shape: {
+    kind: 'shape',
+    label: 'Shape',
+    hint: 'Rectangle, diamond or ellipse',
+    icon: Square,
+    defaultColor: 'slate',
+    defaultIcon: 'square',
+  },
+  sticky: {
+    kind: 'sticky',
+    label: 'Sticky',
+    hint: 'Sticky note on the canvas',
+    icon: StickyNote,
+    defaultColor: 'yellow',
+    defaultIcon: 'sticky-note',
+  },
+  section: {
+    kind: 'section',
+    label: 'Section',
+    hint: 'Titled frame for a set of nodes',
+    icon: Frame,
+    defaultColor: 'gray',
+    defaultIcon: 'frame',
+  },
 }
 
 export const PALETTE_KINDS: NodeKind[] = [
@@ -107,6 +133,9 @@ export const PALETTE_KINDS: NodeKind[] = [
   'rule',
   'note',
   'group',
+  'shape',
+  'sticky',
+  'section',
 ]
 
 let idCounter = 0
@@ -148,6 +177,7 @@ export function createNodeOfKind(
         ...base,
         kind: 'decision',
         data: {
+          mode: 'branches',
           branches: [
             { id: 'yes', label: 'Yes', color: 'green' },
             { id: 'no', label: 'No', color: 'red' },
@@ -170,7 +200,16 @@ export function createNodeOfKind(
       return {
         ...base,
         kind: 'rule',
-        data: { rules: [{ condition: '', outcome: '' }] },
+        data: {
+          rules: [
+            {
+              id: newNodeId('rule'),
+              outcome: 'Approve',
+              match: emptyRuleMatch(),
+              condition: '',
+            },
+          ],
+        },
       }
     case 'note':
       return {
@@ -183,6 +222,27 @@ export function createNodeOfKind(
         ...base,
         kind: 'group',
         size: { w: 360, h: 240 },
+        zIndex: -1,
+        data: { label, color, collapsed: false },
+      }
+    case 'shape':
+      return {
+        ...base,
+        kind: 'shape',
+        data: { shape: 'rect', text: label },
+      }
+    case 'sticky':
+      return {
+        ...base,
+        kind: 'sticky',
+        data: { text: 'Sticky note' },
+      }
+    case 'section':
+      return {
+        ...base,
+        kind: 'section',
+        size: { w: 480, h: 320 },
+        zIndex: -2,
         data: { label, color, collapsed: false },
       }
   }

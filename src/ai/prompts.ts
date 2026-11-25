@@ -1,27 +1,41 @@
 import type { Diagram } from '../schema'
 import type { ChatMessage } from './provider'
 
-const SCHEMA_HINT = `Diagram JSON schema v1:
+const SCHEMA_HINT = `Diagram JSON schema v2:
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "title": string (max 200),
   "description": optional string,
   "nodes": [
     {
       "id": string,
-      "kind": "start" | "end" | "step" | "decision" | "mapping" | "integration" | "rule" | "note" | "group",
+      "kind": "start" | "end" | "step" | "decision" | "mapping" | "integration" | "rule" | "note" | "group" | "shape" | "sticky" | "section",
       "label": string (max 200),
       "description": optional string,
       "icon": optional lucide icon name,
       "color": optional palette key (slate|blue|violet|amber|indigo|green|red|pink|yellow|gray) or hex,
       "position": { "x": number, "y": number },
       "size": optional { "w": number, "h": number },
-      "parentId": optional group node id,
+      "parentId": optional group/section node id,
+      "locked": optional boolean,
+      "hidden": optional boolean,
+      "zIndex": optional integer,
+      "style": optional { fill?, stroke?, strokeWidth?, textSize?, textWeight? },
       "data": kind-specific object
     }
   ],
   "edges": [
-    { "id": string, "source": string, "target": string, "sourceHandle"?: string, "label"?: string, "color"?: string }
+    {
+      "id": string, "source": string, "target": string,
+      "sourceHandle"?: string, "targetHandle"?: string,
+      "label"?: string, "color"?: string,
+      "type"?: "elbow" | "straight" | "curved",
+      "waypoints"?: {x,y}[],
+      "startMarker"?: "none"|"arrow"|"arrowFilled"|"circle"|"diamond",
+      "endMarker"?: "none"|"arrow"|"arrowFilled"|"circle"|"diamond",
+      "style"?: { color?, width?: 1-4, dash?: "solid"|"dashed" },
+      "labelPosition"?: number 0-1
+    }
   ],
   "groups": [],
   "viewport": { "x": 0, "y": 0, "zoom": 1 },
@@ -31,12 +45,23 @@ const SCHEMA_HINT = `Diagram JSON schema v1:
 Kind-specific data:
 - start, end: {} or omit
 - step: { owner?, notes? }
-- decision: { branches: [{ id, label, condition?, color? }] } (each branch is a source handle)
+- decision: {
+    mode?: "branches" | "switch",
+    switchField?: string,
+    branches: [{ id, label, condition?, color?, match?: { combinator, conditions: [{ field, operator, value?, value2? }] }, isDefault? }]
+  }
+  operators: eq, neq, gt, lt, between, contains, empty, in
 - mapping: { mappings: [{ from, to, transform? }] }
 - integration: { service, method?, endpoint?, inputs?, outputs? }
-- rule: { rules: [{ condition, outcome, score? }], threshold? }
+- rule: {
+    rules: [{ id?, condition? (legacy), match?: { combinator, groups: [{ combinator, conditions }] }, outcome, score? }],
+    threshold?
+  }
 - note: { text }
 - group: { label, color?, collapsed? }
+- shape: { shape: "rect"|"rounded"|"diamond"|"ellipse", text? }
+- sticky: { text }
+- section: { label, color?, collapsed? }
 
 Limits: max 2000 nodes, 4000 edges, unique ids, edges must point at real nodes.`
 
@@ -45,7 +70,7 @@ export const SYSTEM_PROMPT = `You are an assistant that helps design decision fl
 Always reply with a single JSON object (no markdown fences) in one of these shapes:
 
 1. Full replace (new flow or large rewrite):
-{ "type": "replace", "diagram": { ...full diagram v1 without requiring an id... }, "summary": "short plain English summary" }
+{ "type": "replace", "diagram": { ...full diagram v2 without requiring an id... }, "summary": "short plain English summary" }
 
 2. Small edits as ops:
 { "type": "ops", "ops": [ ... ], "summary": "short plain English summary" }
@@ -67,7 +92,8 @@ Rules:
 - Prefer "ops" for small changes to the current diagram.
 - Prefer "replace" when creating a new flow from scratch or rewriting most of it.
 - Give every node a stable unique id (e.g. n1, n2). Give every edge a unique id (e.g. e1).
-- Decision nodes must include at least one branch in data.branches.
+- Decision nodes must include at least Yes and No branches by default; add more branches with labels and optional match conditions when needed.
+- Rule nodes should use structured match groups (field, operator, value) when possible.
 - Place nodes with sensible positions when using replace; if unsure, use a top-to-bottom layout with ~260px horizontal and ~140px vertical spacing.
 - Keep labels short and plain English. Do not use em dashes.
 - Never invent API keys or secrets.
@@ -93,7 +119,6 @@ export function buildPromptMessages(
     viewport: diagram.viewport,
     theme: diagram.theme,
   })
-
   const trimmedDiagram =
     diagramJson.length > MAX_DIAGRAM_CHARS
       ? `${diagramJson.slice(0, MAX_DIAGRAM_CHARS)}\n...[trimmed]`

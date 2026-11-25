@@ -32,6 +32,9 @@ const NodeKindEnum = z.enum([
   'rule',
   'note',
   'group',
+  'shape',
+  'sticky',
+  'section',
 ])
 
 /** AI may omit id/position/data; defaults are filled when applying. */
@@ -72,6 +75,16 @@ const AddEdgeOpSchema = z.object({
     targetHandle: z.string().optional(),
     label: z.string().max(200).optional(),
     color: z.string().optional(),
+    type: z.enum(['elbow', 'straight', 'curved']).optional(),
+    startMarker: z.enum(['none', 'arrow', 'arrowFilled', 'circle', 'diamond']).optional(),
+    endMarker: z.enum(['none', 'arrow', 'arrowFilled', 'circle', 'diamond']).optional(),
+    style: z
+      .object({
+        color: z.string().optional(),
+        width: z.number().finite().min(1).max(4).optional(),
+        dash: z.enum(['solid', 'dashed']).optional(),
+      })
+      .optional(),
   }),
 })
 

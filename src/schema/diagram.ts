@@ -1,6 +1,7 @@
 import { z } from 'zod'
+import { ConditionSchema, RuleMatchSchema } from './conditions'
 
-export const CURRENT_SCHEMA_VERSION = 1 as const
+export const CURRENT_SCHEMA_VERSION = 2 as const
 
 export const MAX_NODES = 2000
 export const MAX_EDGES = 4000
@@ -16,6 +17,14 @@ const SizeSchema = z.object({
   h: z.number().finite().positive(),
 })
 
+const NodeStyleSchema = z.object({
+  fill: z.string().optional(),
+  stroke: z.string().optional(),
+  strokeWidth: z.number().finite().optional(),
+  textSize: z.number().finite().optional(),
+  textWeight: z.union([z.literal(400), z.literal(500), z.literal(600), z.string()]).optional(),
+})
+
 export const NodeKindSchema = z.enum([
   'start',
   'end',
@@ -26,16 +35,28 @@ export const NodeKindSchema = z.enum([
   'rule',
   'note',
   'group',
+  'shape',
+  'sticky',
+  'section',
 ])
 
 export type NodeKind = z.infer<typeof NodeKindSchema>
 
-const BranchSchema = z.object({
+const BranchMatchSchema = z.object({
+  combinator: z.enum(['and', 'or']).default('and'),
+  conditions: z.array(ConditionSchema).min(1).max(20),
+})
+
+export const BranchSchema = z.object({
   id: z.string().min(1),
   label: z.string().max(MAX_LABEL_LENGTH),
   condition: z.string().optional(),
   color: z.string().optional(),
+  match: BranchMatchSchema.optional(),
+  isDefault: z.boolean().optional(),
 })
+
+export type Branch = z.infer<typeof BranchSchema>
 
 const MappingRowSchema = z.object({
   from: z.string(),
@@ -43,11 +64,15 @@ const MappingRowSchema = z.object({
   transform: z.string().optional(),
 })
 
-const RuleRowSchema = z.object({
-  condition: z.string(),
+export const RuleRowSchema = z.object({
+  id: z.string().min(1).optional(),
+  condition: z.string().optional(),
+  match: RuleMatchSchema.optional(),
   outcome: z.string(),
   score: z.number().finite().optional(),
 })
+
+export type RuleRow = z.infer<typeof RuleRowSchema>
 
 const NodeBaseSchema = z.object({
   id: z.string().min(1),
@@ -58,6 +83,10 @@ const NodeBaseSchema = z.object({
   position: PositionSchema,
   size: SizeSchema.optional(),
   parentId: z.string().min(1).optional(),
+  locked: z.boolean().optional(),
+  hidden: z.boolean().optional(),
+  zIndex: z.number().int().optional(),
+  style: NodeStyleSchema.optional(),
 })
 
 export const DiagramNodeSchema = z.discriminatedUnion('kind', [
@@ -81,6 +110,8 @@ export const DiagramNodeSchema = z.discriminatedUnion('kind', [
   NodeBaseSchema.extend({
     kind: z.literal('decision'),
     data: z.object({
+      mode: z.enum(['branches', 'switch']).optional(),
+      switchField: z.string().max(200).optional(),
       branches: z.array(BranchSchema).min(1),
     }),
   }),
@@ -121,9 +152,40 @@ export const DiagramNodeSchema = z.discriminatedUnion('kind', [
       collapsed: z.boolean().optional(),
     }),
   }),
+  NodeBaseSchema.extend({
+    kind: z.literal('shape'),
+    data: z.object({
+      shape: z.enum(['rect', 'rounded', 'diamond', 'ellipse']).default('rect'),
+      text: z.string().optional(),
+    }),
+  }),
+  NodeBaseSchema.extend({
+    kind: z.literal('sticky'),
+    data: z.object({
+      text: z.string().default(''),
+    }),
+  }),
+  NodeBaseSchema.extend({
+    kind: z.literal('section'),
+    data: z.object({
+      label: z.string().max(MAX_LABEL_LENGTH),
+      color: z.string().optional(),
+      collapsed: z.boolean().optional(),
+    }),
+  }),
 ])
 
 export type DiagramNode = z.infer<typeof DiagramNodeSchema>
+
+export const EdgeMarkerSchema = z.enum([
+  'none',
+  'arrow',
+  'arrowFilled',
+  'circle',
+  'diamond',
+])
+
+export type EdgeMarker = z.infer<typeof EdgeMarkerSchema>
 
 export const DiagramEdgeSchema = z.object({
   id: z.string().min(1),
@@ -133,6 +195,18 @@ export const DiagramEdgeSchema = z.object({
   targetHandle: z.string().optional(),
   label: z.string().max(MAX_LABEL_LENGTH).optional(),
   color: z.string().optional(),
+  type: z.enum(['elbow', 'straight', 'curved']).optional(),
+  waypoints: z.array(PositionSchema).max(32).optional(),
+  startMarker: EdgeMarkerSchema.optional(),
+  endMarker: EdgeMarkerSchema.optional(),
+  style: z
+    .object({
+      color: z.string().optional(),
+      width: z.number().finite().min(1).max(4).optional(),
+      dash: z.enum(['solid', 'dashed']).optional(),
+    })
+    .optional(),
+  labelPosition: z.number().finite().min(0).max(1).optional(),
 })
 
 export type DiagramEdge = z.infer<typeof DiagramEdgeSchema>
@@ -246,4 +320,8 @@ export function parseDiagramDoc(raw: unknown): DiagramDoc {
 
 export function parseDiagram(raw: unknown): Diagram {
   return DiagramSchema.parse(raw)
+}
+
+export function isContainerKind(kind: NodeKind): boolean {
+  return kind === 'group' || kind === 'section'
 }

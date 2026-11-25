@@ -8,8 +8,9 @@ import {
   parseDiagramDoc,
 } from './diagram'
 import { migrateDiagramDoc, migrations } from './migrations'
+import { rulePreviewSentence, ensureRuleMatch } from './conditions'
 
-const validDoc = {
+const validDocV1 = {
   schemaVersion: 1 as const,
   title: 'BNPL approval flow',
   description: 'optional',
@@ -47,6 +48,16 @@ const validDoc = {
         endpoint: '/check',
       },
     },
+    {
+      id: 'n4',
+      kind: 'rule' as const,
+      label: 'Scorecard',
+      color: 'indigo',
+      position: { x: 0, y: 240 },
+      data: {
+        rules: [{ condition: 'credit score > 650', outcome: 'Approve', score: 10 }],
+      },
+    },
   ],
   edges: [
     {
@@ -68,33 +79,44 @@ const validDoc = {
   theme: { palette: 'default' },
 }
 
-describe('diagram schema v1', () => {
+describe('diagram schema v2', () => {
   it('parses a valid diagram doc', () => {
-    const doc = parseDiagramDoc(validDoc)
+    const doc = migrateDiagramDoc(validDocV1)
     expect(doc.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
-    expect(doc.nodes).toHaveLength(3)
+    expect(doc.nodes).toHaveLength(4)
     expect(doc.edges).toHaveLength(2)
   })
 
   it('parses a full diagram with id', () => {
-    const diagram = parseDiagram({ ...validDoc, id: 'd_abc123' })
+    const diagram = parseDiagram({ ...migrateDiagramDoc(validDocV1), id: 'd_abc123' })
     expect(diagram.id).toBe('d_abc123')
     expect(diagram.title).toBe('BNPL approval flow')
   })
 
-  it('creates an empty diagram', () => {
+  it('creates an empty diagram at current schema', () => {
     const diagram = createEmptyDiagram('d_empty', 'Untitled diagram')
     expect(diagram.nodes).toEqual([])
     expect(diagram.edges).toEqual([])
-    expect(diagram.schemaVersion).toBe(1)
+    expect(diagram.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
   })
 
   it('rejects duplicate node ids', () => {
+    const base = createEmptyDiagramDoc()
     const result = DiagramDocSchema.safeParse({
-      ...validDoc,
+      ...base,
       nodes: [
-        validDoc.nodes[0],
-        { ...validDoc.nodes[0], id: 'n1', kind: 'end', label: 'Done' },
+        {
+          id: 'n1',
+          kind: 'start',
+          label: 'A',
+          position: { x: 0, y: 0 },
+        },
+        {
+          id: 'n1',
+          kind: 'end',
+          label: 'Done',
+          position: { x: 0, y: 40 },
+        },
       ],
       edges: [],
     })
@@ -102,8 +124,17 @@ describe('diagram schema v1', () => {
   })
 
   it('rejects edges that point at missing nodes', () => {
+    const base = createEmptyDiagramDoc()
     const result = DiagramDocSchema.safeParse({
-      ...validDoc,
+      ...base,
+      nodes: [
+        {
+          id: 'n1',
+          kind: 'start',
+          label: 'A',
+          position: { x: 0, y: 0 },
+        },
+      ],
       edges: [{ id: 'e-bad', source: 'n1', target: 'missing' }],
     })
     expect(result.success).toBe(false)
@@ -131,13 +162,52 @@ describe('diagram schema v1', () => {
     })
     expect(result.success).toBe(false)
   })
+
+  it('accepts hidden locked zIndex and edge style fields', () => {
+    const doc = parseDiagramDoc({
+      ...createEmptyDiagramDoc(),
+      nodes: [
+        {
+          id: 'n1',
+          kind: 'step',
+          label: 'Hidden step',
+          position: { x: 0, y: 0 },
+          hidden: true,
+          locked: true,
+          zIndex: 3,
+        },
+      ],
+      edges: [
+        {
+          id: 'e1',
+          source: 'n1',
+          target: 'n1',
+          type: 'elbow',
+          endMarker: 'diamond',
+          style: { dash: 'dashed', width: 2 },
+        },
+      ],
+    })
+    expect(doc.nodes[0].hidden).toBe(true)
+    expect(doc.edges[0].endMarker).toBe('diamond')
+  })
 })
 
 describe('migrateDiagramDoc', () => {
-  it('returns a parsed v1 doc unchanged', () => {
-    const migrated = migrateDiagramDoc(validDoc)
-    expect(migrated.schemaVersion).toBe(1)
-    expect(migrated.title).toBe(validDoc.title)
+  it('migrates v1 docs to v2 with structured rules and decision mode', () => {
+    const migrated = migrateDiagramDoc(validDocV1)
+    expect(migrated.schemaVersion).toBe(2)
+    const rule = migrated.nodes.find((n) => n.kind === 'rule')
+    expect(rule?.kind).toBe('rule')
+    if (rule?.kind === 'rule') {
+      const match = ensureRuleMatch(rule.data.rules[0])
+      expect(match.groups[0].conditions[0].field).toContain('credit score')
+      expect(rulePreviewSentence(match, rule.data.rules[0].outcome)).toMatch(/Approve/)
+    }
+    const decision = migrated.nodes.find((n) => n.kind === 'decision')
+    if (decision?.kind === 'decision') {
+      expect(decision.data.mode).toBe('branches')
+    }
   })
 
   it('throws when schemaVersion is missing', () => {
@@ -148,11 +218,11 @@ describe('migrateDiagramDoc', () => {
 
   it('throws when the doc is newer than the app', () => {
     expect(() =>
-      migrateDiagramDoc({ ...validDoc, schemaVersion: CURRENT_SCHEMA_VERSION + 1 }),
+      migrateDiagramDoc({ ...validDocV1, schemaVersion: CURRENT_SCHEMA_VERSION + 1 }),
     ).toThrow(/newer/)
   })
 
-  it('exposes an empty migrations map while only v1 exists', () => {
-    expect(Object.keys(migrations)).toEqual([])
+  it('exposes a v1 to v2 migration', () => {
+    expect(Object.keys(migrations)).toEqual(['1'])
   })
 })
