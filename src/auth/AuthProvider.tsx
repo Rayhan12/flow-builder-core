@@ -1,7 +1,12 @@
 import {
+  GoogleAuthProvider,
   createUserWithEmailAndPassword,
+  getRedirectResult,
   onAuthStateChanged,
+  sendPasswordResetEmail,
   signInWithEmailAndPassword,
+  signInWithPopup,
+  signInWithRedirect,
   signOut as firebaseSignOut,
   updateProfile,
   type User,
@@ -17,6 +22,21 @@ import {
 import { auth, db } from '../lib/firebase'
 import { ensureUserAndDefaultProject, migrateLegacyDiagramsIfNeeded } from '../data/migration'
 import { AuthContext } from './authContext'
+
+const googleProvider = new GoogleAuthProvider()
+
+const POPUP_FALLBACK_CODES = new Set([
+  'auth/popup-blocked',
+  'auth/cancelled-popup-request',
+  'auth/operation-not-supported-in-environment',
+])
+
+function authErrorCode(error: unknown): string {
+  if (error && typeof error === 'object' && 'code' in error) {
+    return String((error as { code: unknown }).code)
+  }
+  return ''
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
@@ -39,6 +59,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   useEffect(() => {
+    let active = true
+
+    void (async () => {
+      try {
+        const redirect = await getRedirectResult(auth)
+        if (redirect?.user && active) {
+          // onAuthStateChanged will also fire; post-sign-in runs there.
+        }
+      } catch (err) {
+        console.error('Google redirect sign-in failed', err)
+      }
+    })()
+
     const unsub = onAuthStateChanged(auth, (next) => {
       setUser(next)
       setLoading(false)
@@ -46,7 +79,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         void runPostSignIn(next)
       }
     })
-    return unsub
+    return () => {
+      active = false
+      unsub()
+    }
   }, [runPostSignIn])
 
   const signIn = useCallback(async (email: string, password: string) => {
@@ -78,13 +114,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [],
   )
 
+  const signInWithGoogle = useCallback(async () => {
+    try {
+      await signInWithPopup(auth, googleProvider)
+    } catch (err) {
+      const code = authErrorCode(err)
+      if (POPUP_FALLBACK_CODES.has(code)) {
+        await signInWithRedirect(auth, googleProvider)
+        return
+      }
+      throw err
+    }
+  }, [])
+
+  const resetPassword = useCallback(async (email: string) => {
+    await sendPasswordResetEmail(auth, email.trim())
+  }, [])
+
   const signOut = useCallback(async () => {
     await firebaseSignOut(auth)
   }, [])
 
   const value = useMemo(
-    () => ({ user, loading, migrating, signIn, signUp, signOut }),
-    [user, loading, migrating, signIn, signUp, signOut],
+    () => ({
+      user,
+      loading,
+      migrating,
+      signIn,
+      signUp,
+      signInWithGoogle,
+      resetPassword,
+      signOut,
+    }),
+    [user, loading, migrating, signIn, signUp, signInWithGoogle, resetPassword, signOut],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

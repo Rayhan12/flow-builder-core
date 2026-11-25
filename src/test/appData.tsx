@@ -9,6 +9,8 @@ export const testAuth: AuthContextValue = {
   signIn: vi.fn(),
   signUp: vi.fn(),
   signOut: vi.fn(),
+  signInWithGoogle: vi.fn(),
+  resetPassword: vi.fn(),
 }
 
 export function makeAppData(overrides: Partial<AppDataContextValue> = {}): AppDataContextValue {

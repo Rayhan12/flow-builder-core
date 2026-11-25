@@ -37,6 +37,8 @@ describe('ProtectedRoute', () => {
       signIn: vi.fn(),
       signUp: vi.fn(),
       signOut: vi.fn(),
+      signInWithGoogle: vi.fn(),
+      resetPassword: vi.fn(),
     })
 
     renderAt('/private')
@@ -50,6 +52,8 @@ describe('ProtectedRoute', () => {
       signIn: vi.fn(),
       signUp: vi.fn(),
       signOut: vi.fn(),
+      signInWithGoogle: vi.fn(),
+      resetPassword: vi.fn(),
     })
 
     renderAt('/private')
@@ -64,6 +68,8 @@ describe('ProtectedRoute', () => {
       signIn: vi.fn(),
       signUp: vi.fn(),
       signOut: vi.fn(),
+      signInWithGoogle: vi.fn(),
+      resetPassword: vi.fn(),
     })
 
     renderAt('/private')

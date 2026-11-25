@@ -20,6 +20,14 @@ export function authErrorMessage(error: unknown): string {
       return 'Too many attempts. Wait a moment and try again.'
     case 'auth/network-request-failed':
       return 'Network error. Check your connection and try again.'
+    case 'auth/popup-closed-by-user':
+      return 'Google sign-in was closed before it finished.'
+    case 'auth/account-exists-with-different-credential':
+      return 'An account already exists with this email. Sign in with email and password.'
+    case 'auth/missing-email':
+      return 'Enter your email address first.'
+    case 'auth/user-disabled':
+      return 'This account has been disabled.'
     default:
       return 'Something went wrong. Please try again.'
   }

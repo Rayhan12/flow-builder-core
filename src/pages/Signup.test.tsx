@@ -14,6 +14,8 @@ vi.mock('../auth/useAuth', () => ({
     signIn: vi.fn(),
     signUp,
     signOut: vi.fn(),
+    signInWithGoogle: vi.fn(),
+    resetPassword: vi.fn(),
   }),
 }))
 
