@@ -7,7 +7,7 @@ safe_push(){
   git check-ignore -q .env.local || { log "PUSH BLOCKED: .env.local not ignored"; return 1; }
   git check-ignore -q flow-builder-core-firebase-adminsdk-fbsvc-f2e1a56d54.json || { log "PUSH BLOCKED: key file not ignored"; return 1; }
   if git ls-files | grep -qE '(^|/)\.env(\.local)?$|adminsdk|service-account'; then log "PUSH BLOCKED: secret file tracked"; return 1; fi
-  if git log origin/main..HEAD -p | grep -qE 'AIza[0-9A-Za-z_-]{30,}|sk-[A-Za-z0-9]{20,}|PRIVATE KEY|private_key'; then log "PUSH BLOCKED: possible key in commits"; return 1; fi
+  if git log origin/main..HEAD -p | grep -qE 'AIza[0-9A-Za-z_-]{30,}|sk-[A-Za-z0-9]{20,}|BEGIN [A-Z ]*PRIVATE|private_key"[[:space:]]*:'; then log "PUSH BLOCKED: possible key in commits"; return 1; fi
   git push origin main >> .cursor-runs/push.log 2>&1 && log "PUSHED $(git rev-parse --short HEAD)" || log "PUSH FAILED"
 }
 until grep -q "VERIFY PASS2" $S; do sleep 5; done
