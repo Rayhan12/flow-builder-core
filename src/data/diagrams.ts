@@ -9,6 +9,7 @@ import {
   serverTimestamp,
   setDoc,
   updateDoc,
+  writeBatch,
   type Timestamp,
 } from 'firebase/firestore'
 import { db } from '../lib/firebase'
@@ -42,15 +43,53 @@ export type DiagramRecord = {
   updatedAt: Date | null
 }
 
-function diagramsCol(uid: string) {
+const DELETE_BATCH_SIZE = 400
+
+async function adjustProjectDiagramCount(uid: string, projectId: string, delta: number): Promise<void> {
+  const pref = doc(db, 'users', uid, 'projects', projectId)
+  const snap = await getDoc(pref)
+  if (!snap.exists()) return
+  const data = snap.data() as Record<string, unknown>
+  const current = typeof data.diagramCount === 'number' ? data.diagramCount : 0
+  await updateDoc(pref, {
+    diagramCount: Math.max(0, current + delta),
+    updatedAt: serverTimestamp(),
+  })
+}
+
+export function diagramsCol(uid: string, projectId: string) {
+  return collection(db, 'users', uid, 'projects', projectId, 'diagrams')
+}
+
+export function diagramRef(uid: string, projectId: string, diagramId: string) {
+  return doc(db, 'users', uid, 'projects', projectId, 'diagrams', diagramId)
+}
+
+export function legacyDiagramsCol(uid: string) {
   return collection(db, 'users', uid, 'diagrams')
 }
 
-function diagramRef(uid: string, diagramId: string) {
+export function legacyDiagramRef(uid: string, diagramId: string) {
   return doc(db, 'users', uid, 'diagrams', diagramId)
 }
 
-function newDiagramId(): string {
+function legacyMessagesCol(uid: string, diagramId: string) {
+  return collection(db, 'users', uid, 'diagrams', diagramId, 'messages')
+}
+
+function legacyVersionsCol(uid: string, diagramId: string) {
+  return collection(db, 'users', uid, 'diagrams', diagramId, 'versions')
+}
+
+function projectMessagesCol(uid: string, projectId: string, diagramId: string) {
+  return collection(db, 'users', uid, 'projects', projectId, 'diagrams', diagramId, 'messages')
+}
+
+function projectVersionsCol(uid: string, projectId: string, diagramId: string) {
+  return collection(db, 'users', uid, 'projects', projectId, 'diagrams', diagramId, 'versions')
+}
+
+export function newDiagramId(): string {
   const raw =
     typeof crypto !== 'undefined' && 'randomUUID' in crypto
       ? crypto.randomUUID().replace(/-/g, '')
@@ -111,19 +150,24 @@ function toRecord(id: string, data: Record<string, unknown>): DiagramRecord {
   }
 }
 
-export async function listDiagrams(uid: string): Promise<DiagramListItem[]> {
-  const snap = await getDocs(query(diagramsCol(uid), orderBy('updatedAt', 'desc')))
+export async function listDiagrams(uid: string, projectId: string): Promise<DiagramListItem[]> {
+  const snap = await getDocs(query(diagramsCol(uid, projectId), orderBy('updatedAt', 'desc')))
   return snap.docs.map((d) => toListItem(d.id, d.data() as Record<string, unknown>))
 }
 
-export async function getDiagram(uid: string, diagramId: string): Promise<DiagramRecord | null> {
-  const snap = await getDoc(diagramRef(uid, diagramId))
+export async function getDiagram(
+  uid: string,
+  projectId: string,
+  diagramId: string,
+): Promise<DiagramRecord | null> {
+  const snap = await getDoc(diagramRef(uid, projectId, diagramId))
   if (!snap.exists()) return null
   return toRecord(snap.id, snap.data() as Record<string, unknown>)
 }
 
 export async function createDiagram(
   uid: string,
+  projectId: string,
   title = 'Untitled diagram',
 ): Promise<DiagramRecord> {
   const id = newDiagramId()
@@ -138,7 +182,8 @@ export async function createDiagram(
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   }
-  await setDoc(diagramRef(uid, id), payload)
+  await setDoc(diagramRef(uid, projectId, id), payload)
+  await adjustProjectDiagramCount(uid, projectId, 1)
   return {
     id,
     ownerId: uid,
@@ -154,6 +199,7 @@ export async function createDiagram(
 
 export async function renameDiagram(
   uid: string,
+  projectId: string,
   diagramId: string,
   title: string,
 ): Promise<void> {
@@ -161,12 +207,12 @@ export async function renameDiagram(
   if (!trimmed) {
     throw new Error('Title cannot be empty')
   }
-  const existing = await getDiagram(uid, diagramId)
+  const existing = await getDiagram(uid, projectId, diagramId)
   if (!existing) {
     throw new Error('Diagram not found')
   }
   const nextDoc: DiagramDoc = { ...existing.doc, title: trimmed }
-  await updateDoc(diagramRef(uid, diagramId), {
+  await updateDoc(diagramRef(uid, projectId, diagramId), {
     title: trimmed,
     doc: nextDoc,
     updatedAt: serverTimestamp(),
@@ -176,9 +222,10 @@ export async function renameDiagram(
 
 export async function duplicateDiagram(
   uid: string,
+  projectId: string,
   diagramId: string,
 ): Promise<DiagramRecord> {
-  const existing = await getDiagram(uid, diagramId)
+  const existing = await getDiagram(uid, projectId, diagramId)
   if (!existing) {
     throw new Error('Diagram not found')
   }
@@ -198,7 +245,8 @@ export async function duplicateDiagram(
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   }
-  await setDoc(diagramRef(uid, id), payload)
+  await setDoc(diagramRef(uid, projectId, id), payload)
+  await adjustProjectDiagramCount(uid, projectId, 1)
   return {
     id,
     ownerId: uid,
@@ -212,18 +260,73 @@ export async function duplicateDiagram(
   }
 }
 
-export async function deleteDiagram(uid: string, diagramId: string): Promise<void> {
-  await deleteDoc(diagramRef(uid, diagramId))
+export async function deleteDiagramSubcollections(
+  uid: string,
+  projectId: string,
+  diagramId: string,
+): Promise<void> {
+  const roots = [
+    projectMessagesCol(uid, projectId, diagramId),
+    projectVersionsCol(uid, projectId, diagramId),
+  ]
+  for (const col of roots) {
+    const snap = await getDocs(col)
+    let batch = writeBatch(db)
+    let count = 0
+    for (const d of snap.docs) {
+      batch.delete(d.ref)
+      count++
+      if (count >= DELETE_BATCH_SIZE) {
+        await batch.commit()
+        batch = writeBatch(db)
+        count = 0
+      }
+    }
+    if (count > 0) await batch.commit()
+  }
+}
+
+export async function deleteLegacyDiagramSubcollections(
+  uid: string,
+  diagramId: string,
+): Promise<void> {
+  const roots = [legacyMessagesCol(uid, diagramId), legacyVersionsCol(uid, diagramId)]
+  for (const col of roots) {
+    const snap = await getDocs(col)
+    let batch = writeBatch(db)
+    let count = 0
+    for (const d of snap.docs) {
+      batch.delete(d.ref)
+      count++
+      if (count >= DELETE_BATCH_SIZE) {
+        await batch.commit()
+        batch = writeBatch(db)
+        count = 0
+      }
+    }
+    if (count > 0) await batch.commit()
+  }
+}
+
+export async function deleteDiagram(
+  uid: string,
+  projectId: string,
+  diagramId: string,
+): Promise<void> {
+  await deleteDiagramSubcollections(uid, projectId, diagramId)
+  await deleteDoc(diagramRef(uid, projectId, diagramId))
+  await adjustProjectDiagramCount(uid, projectId, -1)
 }
 
 /** Persist a full diagram body (used by the editor in later milestones). */
 export async function saveDiagram(
   uid: string,
+  projectId: string,
   diagramId: string,
   diagram: Diagram,
   expectedRevision: number,
 ): Promise<number> {
-  const existing = await getDiagram(uid, diagramId)
+  const existing = await getDiagram(uid, projectId, diagramId)
   if (!existing) {
     throw new Error('Diagram not found')
   }
@@ -243,7 +346,7 @@ export async function saveDiagram(
     }),
   )
   const nextRevision = expectedRevision + 1
-  await updateDoc(diagramRef(uid, diagramId), {
+  await updateDoc(diagramRef(uid, projectId, diagramId), {
     title: nextDoc.title,
     schemaVersion: nextDoc.schemaVersion,
     doc: nextDoc,
@@ -252,4 +355,61 @@ export async function saveDiagram(
     updatedAt: serverTimestamp(),
   })
   return nextRevision
+}
+
+// --- Legacy path (migration) ---
+
+export async function listLegacyDiagrams(uid: string): Promise<DiagramListItem[]> {
+  const snap = await getDocs(query(legacyDiagramsCol(uid), orderBy('updatedAt', 'desc')))
+  return snap.docs.map((d) => toListItem(d.id, d.data() as Record<string, unknown>))
+}
+
+export async function getLegacyDiagram(
+  uid: string,
+  diagramId: string,
+): Promise<DiagramRecord | null> {
+  const snap = await getDoc(legacyDiagramRef(uid, diagramId))
+  if (!snap.exists()) return null
+  return toRecord(snap.id, snap.data() as Record<string, unknown>)
+}
+
+export async function deleteLegacyDiagram(uid: string, diagramId: string): Promise<void> {
+  await deleteLegacyDiagramSubcollections(uid, diagramId)
+  await deleteDoc(legacyDiagramRef(uid, diagramId))
+}
+
+/** Copy diagram doc and subcollections into a project (preserves diagram id). */
+export async function copyLegacyDiagramToProject(
+  uid: string,
+  projectId: string,
+  diagramId: string,
+): Promise<boolean> {
+  const legacyRef = legacyDiagramRef(uid, diagramId)
+  const legacySnap = await getDoc(legacyRef)
+  if (!legacySnap.exists()) return false
+
+  const targetRef = diagramRef(uid, projectId, diagramId)
+  const targetSnap = await getDoc(targetRef)
+  if (targetSnap.exists()) return true
+
+  await setDoc(targetRef, legacySnap.data())
+
+  for (const col of [legacyMessagesCol(uid, diagramId), legacyVersionsCol(uid, diagramId)]) {
+    const snap = await getDocs(col)
+    for (const d of snap.docs) {
+      const dest = doc(
+        db,
+        'users',
+        uid,
+        'projects',
+        projectId,
+        'diagrams',
+        diagramId,
+        col.id,
+        d.id,
+      )
+      await setDoc(dest, d.data())
+    }
+  }
+  return true
 }

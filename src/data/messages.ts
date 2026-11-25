@@ -23,12 +23,31 @@ export type DiagramMessage = {
   applied: boolean
 }
 
-function messagesCol(uid: string, diagramId: string) {
-  return collection(db, 'users', uid, 'diagrams', diagramId, 'messages')
+function messagesCol(uid: string, projectId: string, diagramId: string) {
+  return collection(
+    db,
+    'users',
+    uid,
+    'projects',
+    projectId,
+    'diagrams',
+    diagramId,
+    'messages',
+  )
 }
 
-function messageRef(uid: string, diagramId: string, messageId: string) {
-  return doc(db, 'users', uid, 'diagrams', diagramId, 'messages', messageId)
+function messageRef(uid: string, projectId: string, diagramId: string, messageId: string) {
+  return doc(
+    db,
+    'users',
+    uid,
+    'projects',
+    projectId,
+    'diagrams',
+    diagramId,
+    'messages',
+    messageId,
+  )
 }
 
 function newMessageId(): string {
@@ -65,14 +84,18 @@ function toMessage(id: string, data: Record<string, unknown>): DiagramMessage {
 
 export async function listMessages(
   uid: string,
+  projectId: string,
   diagramId: string,
 ): Promise<DiagramMessage[]> {
-  const snap = await getDocs(query(messagesCol(uid, diagramId), orderBy('createdAt', 'asc')))
+  const snap = await getDocs(
+    query(messagesCol(uid, projectId, diagramId), orderBy('createdAt', 'asc')),
+  )
   return snap.docs.map((d) => toMessage(d.id, d.data() as Record<string, unknown>))
 }
 
 export async function addMessage(
   uid: string,
+  projectId: string,
   diagramId: string,
   input: {
     role: MessageRole
@@ -90,7 +113,7 @@ export async function addMessage(
   }
   if (input.ops) payload.ops = input.ops
 
-  await setDoc(messageRef(uid, diagramId, id), payload)
+  await setDoc(messageRef(uid, projectId, diagramId, id), payload)
   return {
     id,
     role: input.role,
@@ -103,9 +126,14 @@ export async function addMessage(
 
 export async function markMessageApplied(
   uid: string,
+  projectId: string,
   diagramId: string,
   messageId: string,
   applied = true,
 ): Promise<void> {
-  await updateDoc(messageRef(uid, diagramId, messageId), { applied })
+  await updateDoc(messageRef(uid, projectId, diagramId, messageId), { applied })
+}
+
+export function messagesCollection(uid: string, projectId: string, diagramId: string) {
+  return messagesCol(uid, projectId, diagramId)
 }

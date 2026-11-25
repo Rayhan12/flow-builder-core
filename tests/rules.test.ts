@@ -125,4 +125,55 @@ describe.skipIf(!run)('Firestore rules', () => {
     delete rest.schemaVersion
     await assertFails(setDoc(doc(db, 'users', OWNER, 'diagrams', 'd-nosv'), rest))
   })
+
+  it('lets the owner create and read a project-scoped diagram', async () => {
+    const db = env.authenticatedContext(OWNER).firestore()
+    await assertSucceeds(
+      setDoc(doc(db, 'users', OWNER, 'projects', 'p1'), {
+        name: 'Demo',
+        color: 'teal',
+        icon: 'folder',
+        diagramCount: 0,
+      }),
+    )
+    const ref = doc(db, 'users', OWNER, 'projects', 'p1', 'diagrams', 'd1')
+    await assertSucceeds(setDoc(ref, diagramPayload))
+    const snap = await assertSucceeds(getDoc(ref))
+    expect(snap.data()?.title).toBe('Rules test diagram')
+  })
+
+  it('blocks another user from project paths', async () => {
+    await env.withSecurityRulesDisabled(async (context) => {
+      const adminDb = context.firestore()
+      await setDoc(doc(adminDb, 'users', OWNER, 'projects', 'p1'), { name: 'X' })
+      await setDoc(doc(adminDb, 'users', OWNER, 'projects', 'p1', 'diagrams', 'd1'), diagramPayload)
+    })
+
+    const other = env.authenticatedContext(OTHER).firestore()
+    await assertFails(getDoc(doc(other, 'users', OWNER, 'projects', 'p1')))
+    await assertFails(getDoc(doc(other, 'users', OWNER, 'projects', 'p1', 'diagrams', 'd1')))
+    await assertFails(deleteDoc(doc(other, 'users', OWNER, 'projects', 'p1', 'diagrams', 'd1')))
+  })
+
+  it('lets the owner read and delete legacy diagrams', async () => {
+    await env.withSecurityRulesDisabled(async (context) => {
+      const adminDb = context.firestore()
+      await setDoc(doc(adminDb, 'users', OWNER, 'diagrams', 'd-legacy'), diagramPayload)
+    })
+
+    const owner = env.authenticatedContext(OWNER).firestore()
+    await assertSucceeds(getDoc(doc(owner, 'users', OWNER, 'diagrams', 'd-legacy')))
+    await assertSucceeds(deleteDoc(doc(owner, 'users', OWNER, 'diagrams', 'd-legacy')))
+  })
+
+  it('lets the owner use agentChats and blocks other users', async () => {
+    const owner = env.authenticatedContext(OWNER).firestore()
+    const ref = doc(owner, 'users', OWNER, 'agentChats', 'c1')
+    await assertSucceeds(setDoc(ref, { title: 'Draft', createdAt: new Date() }))
+    await assertSucceeds(getDoc(ref))
+
+    const other = env.authenticatedContext(OTHER).firestore()
+    await assertFails(getDoc(doc(other, 'users', OWNER, 'agentChats', 'c1')))
+    await assertFails(setDoc(doc(other, 'users', OWNER, 'agentChats', 'c2'), { title: 'Nope' }))
+  })
 })

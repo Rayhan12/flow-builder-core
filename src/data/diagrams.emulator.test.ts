@@ -9,6 +9,7 @@ import {
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { auth } from '../lib/firebase'
 import { createEmptyDiagram } from '../schema'
+import { ensureDefaultProject } from './projects'
 import {
   createDiagram,
   deleteDiagram,
@@ -23,6 +24,7 @@ const run = Boolean(process.env.FIRESTORE_EMULATOR_HOST && process.env.FIREBASE_
 
 describe.skipIf(!run)('Diagrams repo (emulator)', () => {
   let uid: string
+  let projectId: string
 
   beforeAll(async () => {
     const cred = await createUserWithEmailAndPassword(
@@ -31,6 +33,8 @@ describe.skipIf(!run)('Diagrams repo (emulator)', () => {
       'test-pass-123',
     )
     uid = cred.user.uid
+    const project = await ensureDefaultProject(uid)
+    projectId = project.id
   })
 
   afterAll(async () => {
@@ -40,34 +44,34 @@ describe.skipIf(!run)('Diagrams repo (emulator)', () => {
   it(
     'creates, lists, renames, duplicates and deletes diagrams',
     async () => {
-      const created = await createDiagram(uid, 'Loan flow')
+      const created = await createDiagram(uid, projectId, 'Loan flow')
       expect(created.title).toBe('Loan flow')
       expect(created.doc.nodes).toEqual([])
 
-      let list = await listDiagrams(uid)
+      let list = await listDiagrams(uid, projectId)
       expect(list.some((d) => d.id === created.id)).toBe(true)
 
-      await renameDiagram(uid, created.id, 'Loan approval')
-      const renamed = await getDiagram(uid, created.id)
+      await renameDiagram(uid, projectId, created.id, 'Loan approval')
+      const renamed = await getDiagram(uid, projectId, created.id)
       expect(renamed?.title).toBe('Loan approval')
       expect(renamed?.doc.title).toBe('Loan approval')
 
-      const copy = await duplicateDiagram(uid, created.id)
+      const copy = await duplicateDiagram(uid, projectId, created.id)
       expect(copy.id).not.toBe(created.id)
       expect(copy.title).toBe('Copy of Loan approval')
 
-      list = await listDiagrams(uid)
+      list = await listDiagrams(uid, projectId)
       expect(list.length).toBeGreaterThanOrEqual(2)
 
-      await deleteDiagram(uid, copy.id)
-      await deleteDiagram(uid, created.id)
-      expect(await getDiagram(uid, created.id)).toBeNull()
+      await deleteDiagram(uid, projectId, copy.id)
+      await deleteDiagram(uid, projectId, created.id)
+      expect(await getDiagram(uid, projectId, created.id)).toBeNull()
     },
     15_000,
   )
 
   it('saves diagram body and reloads the same nodes and edges', async () => {
-    const created = await createDiagram(uid, 'Editor save flow')
+    const created = await createDiagram(uid, projectId, 'Editor save flow')
     const diagram = createEmptyDiagram(created.id, 'Editor save flow')
     diagram.nodes = [
       {
@@ -112,10 +116,10 @@ describe.skipIf(!run)('Diagrams repo (emulator)', () => {
       },
     ]
 
-    const revision = await saveDiagram(uid, created.id, diagram, created.revision)
+    const revision = await saveDiagram(uid, projectId, created.id, diagram, created.revision)
     expect(revision).toBe(created.revision + 1)
 
-    const loaded = await getDiagram(uid, created.id)
+    const loaded = await getDiagram(uid, projectId, created.id)
     expect(loaded?.revision).toBe(revision)
     expect(loaded?.nodeCount).toBe(3)
     expect(loaded?.doc.nodes.map((n) => n.id)).toEqual(['n_start', 'n_decision', 'n_end'])
@@ -123,6 +127,6 @@ describe.skipIf(!run)('Diagrams repo (emulator)', () => {
     expect(loaded?.doc.edges[1]?.sourceHandle).toBe('yes')
     expect(loaded?.doc.nodes[1]?.kind).toBe('decision')
 
-    await deleteDiagram(uid, created.id)
+    await deleteDiagram(uid, projectId, created.id)
   })
 })

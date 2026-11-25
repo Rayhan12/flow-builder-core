@@ -3,9 +3,12 @@ rules_version = '2';
 // Each user can only read and write their own data.
 // Layout:
 //   users/{uid}                                  profile and settings
-//   users/{uid}/diagrams/{diagramId}             one diagram (versioned JSON)
-//   users/{uid}/diagrams/{diagramId}/messages/{messageId}   AI chat history
-//   users/{uid}/diagrams/{diagramId}/versions/{versionId}   saved snapshots
+//   users/{uid}/projects/{projectId}             project metadata
+//   users/{uid}/projects/{projectId}/diagrams/{diagramId}
+//   users/{uid}/projects/{projectId}/diagrams/{diagramId}/messages/{messageId}
+//   users/{uid}/projects/{projectId}/diagrams/{diagramId}/versions/{versionId}
+//   users/{uid}/agentChats/{chatId}                AI agent panel (per user)
+//   users/{uid}/diagrams/{diagramId}             legacy path (migration)
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -28,13 +31,33 @@ service cloud.firestore {
     match /users/{uid} {
       allow read, create, update, delete: if isOwner(uid);
 
-      match /diagrams/{diagramId} {
-        allow read: if isOwner(uid);
-        allow create, update: if validDiagramWrite(uid);
-        allow delete: if isOwner(uid);
+      match /projects/{projectId} {
+        allow read, create, update, delete: if isOwner(uid);
 
-        // Named subcollections only. Do not use {name=**} here: a recursive
-        // wildcard also matches zero segments and would bypass diagram checks.
+        match /diagrams/{diagramId} {
+          allow read: if isOwner(uid);
+          allow create, update: if validDiagramWrite(uid);
+          allow delete: if isOwner(uid);
+
+          match /messages/{messageId} {
+            allow read, write: if isOwner(uid);
+          }
+
+          match /versions/{versionId} {
+            allow read, write: if isOwner(uid);
+          }
+        }
+      }
+
+      match /agentChats/{chatId} {
+        allow read, write: if isOwner(uid);
+      }
+
+      // Legacy top-level diagrams (readable and deletable for migration).
+      match /diagrams/{diagramId} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if validDiagramWrite(uid);
+
         match /messages/{messageId} {
           allow read, write: if isOwner(uid);
         }

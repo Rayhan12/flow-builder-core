@@ -17,12 +17,31 @@ export type DiagramVersion = {
   reason: VersionReason
 }
 
-function versionsCol(uid: string, diagramId: string) {
-  return collection(db, 'users', uid, 'diagrams', diagramId, 'versions')
+function versionsCol(uid: string, projectId: string, diagramId: string) {
+  return collection(
+    db,
+    'users',
+    uid,
+    'projects',
+    projectId,
+    'diagrams',
+    diagramId,
+    'versions',
+  )
 }
 
-function versionRef(uid: string, diagramId: string, versionId: string) {
-  return doc(db, 'users', uid, 'diagrams', diagramId, 'versions', versionId)
+function versionRef(uid: string, projectId: string, diagramId: string, versionId: string) {
+  return doc(
+    db,
+    'users',
+    uid,
+    'projects',
+    projectId,
+    'diagrams',
+    diagramId,
+    'versions',
+    versionId,
+  )
 }
 
 function newVersionId(): string {
@@ -61,13 +80,14 @@ function toDoc(diagram: Diagram): DiagramDoc {
 
 export async function saveVersion(
   uid: string,
+  projectId: string,
   diagramId: string,
   diagram: Diagram,
   reason: VersionReason,
 ): Promise<DiagramVersion> {
   const id = newVersionId()
   const docBody = toDoc(diagram)
-  await setDoc(versionRef(uid, diagramId, id), {
+  await setDoc(versionRef(uid, projectId, diagramId, id), {
     doc: docBody,
     createdAt: serverTimestamp(),
     reason,
@@ -93,6 +113,6 @@ export function parseVersion(id: string, data: Record<string, unknown>): Diagram
   }
 }
 
-export function versionsCollection(uid: string, diagramId: string) {
-  return versionsCol(uid, diagramId)
+export function versionsCollection(uid: string, projectId: string, diagramId: string) {
+  return versionsCol(uid, projectId, diagramId)
 }
