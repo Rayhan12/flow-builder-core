@@ -37,30 +37,34 @@ describe.skipIf(!run)('Diagrams repo (emulator)', () => {
     await signOut(auth)
   })
 
-  it('creates, lists, renames, duplicates and deletes diagrams', async () => {
-    const created = await createDiagram(uid, 'Loan flow')
-    expect(created.title).toBe('Loan flow')
-    expect(created.doc.nodes).toEqual([])
+  it(
+    'creates, lists, renames, duplicates and deletes diagrams',
+    async () => {
+      const created = await createDiagram(uid, 'Loan flow')
+      expect(created.title).toBe('Loan flow')
+      expect(created.doc.nodes).toEqual([])
 
-    let list = await listDiagrams(uid)
-    expect(list.some((d) => d.id === created.id)).toBe(true)
+      let list = await listDiagrams(uid)
+      expect(list.some((d) => d.id === created.id)).toBe(true)
 
-    await renameDiagram(uid, created.id, 'Loan approval')
-    const renamed = await getDiagram(uid, created.id)
-    expect(renamed?.title).toBe('Loan approval')
-    expect(renamed?.doc.title).toBe('Loan approval')
+      await renameDiagram(uid, created.id, 'Loan approval')
+      const renamed = await getDiagram(uid, created.id)
+      expect(renamed?.title).toBe('Loan approval')
+      expect(renamed?.doc.title).toBe('Loan approval')
 
-    const copy = await duplicateDiagram(uid, created.id)
-    expect(copy.id).not.toBe(created.id)
-    expect(copy.title).toBe('Copy of Loan approval')
+      const copy = await duplicateDiagram(uid, created.id)
+      expect(copy.id).not.toBe(created.id)
+      expect(copy.title).toBe('Copy of Loan approval')
 
-    list = await listDiagrams(uid)
-    expect(list.length).toBeGreaterThanOrEqual(2)
+      list = await listDiagrams(uid)
+      expect(list.length).toBeGreaterThanOrEqual(2)
 
-    await deleteDiagram(uid, copy.id)
-    await deleteDiagram(uid, created.id)
-    expect(await getDiagram(uid, created.id)).toBeNull()
-  })
+      await deleteDiagram(uid, copy.id)
+      await deleteDiagram(uid, created.id)
+      expect(await getDiagram(uid, created.id)).toBeNull()
+    },
+    15_000,
+  )
 
   it('saves diagram body and reloads the same nodes and edges', async () => {
     const created = await createDiagram(uid, 'Editor save flow')

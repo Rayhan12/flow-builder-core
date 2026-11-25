@@ -10,5 +10,10 @@ export default defineConfig({
     globals: false,
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.{test,spec}.{ts,tsx}', 'tests/**/*.{test,spec}.{ts,tsx}'],
+    // Emulator-backed tests share one Auth/Firestore instance. Serialise files and
+    // give hooks headroom so parallel clearFirestore / rules init do not time out.
+    testTimeout: process.env.FIRESTORE_EMULATOR_HOST ? 15_000 : 5_000,
+    hookTimeout: process.env.FIRESTORE_EMULATOR_HOST ? 20_000 : 10_000,
+    fileParallelism: !process.env.FIRESTORE_EMULATOR_HOST,
   },
 })
