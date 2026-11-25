@@ -66,4 +66,13 @@ describe('editorStore selection and visibility', () => {
     const zb = nodes.find((n) => n.id === b)!.zIndex!
     expect(za).toBeGreaterThan(zb)
   })
+
+  it('selectSimilar selects all nodes of the same kind', () => {
+    const a = useEditorStore.getState().addNode('step', { x: 0, y: 0 })!
+    useEditorStore.getState().addNode('step', { x: 40, y: 0 })
+    useEditorStore.getState().addNode('decision', { x: 80, y: 0 })
+    useEditorStore.getState().setSelection([a], [])
+    expect(useEditorStore.getState().selectSimilar()).toBe(true)
+    expect(useEditorStore.getState().selectedNodeIds).toHaveLength(2)
+  })
 })

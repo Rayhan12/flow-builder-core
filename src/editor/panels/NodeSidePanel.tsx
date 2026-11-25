@@ -1,9 +1,11 @@
 import { createElement, useMemo, useState } from 'react'
 import {
   BringToFront,
+  Copy,
   Eye,
   EyeOff,
   Lock,
+  MoreHorizontal,
   MousePointerClick,
   Plus,
   SendToBack,
@@ -48,7 +50,10 @@ export function NodeSidePanel() {
   const toggleHidden = useEditorStore((s) => s.toggleHidden)
   const toggleLocked = useEditorStore((s) => s.toggleLocked)
   const reorderZ = useEditorStore((s) => s.reorderZ)
+  const duplicateSelection = useEditorStore((s) => s.duplicateSelection)
+  const selectSimilar = useEditorStore((s) => s.selectSimilar)
   const [tab, setTab] = useState<PanelTab>('settings')
+  const [overflowOpen, setOverflowOpen] = useState(false)
 
   const selectedNodes = useMemo(() => {
     if (!diagram) return [] as DiagramNode[]
@@ -193,62 +198,131 @@ export function NodeSidePanel() {
         </button>
       </div>
 
-      <div className="side-panel-quick" role="toolbar" aria-label="Selection actions">
+      <div
+        className="side-panel-quick"
+        role="toolbar"
+        aria-label="Selection actions"
+        data-testid="properties-toolbar"
+      >
         <button
           type="button"
-          className="btn btn-ghost btn-icon"
+          className="side-panel-action"
           aria-label={anyHidden ? 'Show' : 'Hide'}
           title={anyHidden ? 'Show' : 'Hide'}
           data-testid="properties-hide"
           onClick={() => toggleHidden(selectedNodeIds)}
         >
-          {anyHidden ? <EyeOff size={16} /> : <Eye size={16} />}
+          {anyHidden ? <EyeOff size={14} /> : <Eye size={14} />}
+          <span>{anyHidden ? 'Show' : 'Hide'}</span>
         </button>
         <button
           type="button"
-          className="btn btn-ghost btn-icon"
+          className="side-panel-action"
           aria-label={anyLocked ? 'Unlock' : 'Lock'}
           title={anyLocked ? 'Unlock' : 'Lock'}
+          data-testid="properties-lock"
           onClick={() => toggleLocked(selectedNodeIds)}
         >
-          {anyLocked ? <Lock size={16} /> : <Unlock size={16} />}
+          {anyLocked ? <Unlock size={14} /> : <Lock size={14} />}
+          <span>{anyLocked ? 'Unlock' : 'Lock'}</span>
         </button>
         <button
           type="button"
-          className="btn btn-ghost btn-icon"
+          className="side-panel-action"
+          aria-label="Duplicate"
+          title="Duplicate"
+          data-testid="properties-duplicate"
+          onClick={() => duplicateSelection()}
+        >
+          <Copy size={14} />
+          <span>Duplicate</span>
+        </button>
+        <button
+          type="button"
+          className="side-panel-action"
           aria-label="Bring forward"
-          title="Bring forward (Ctrl/Cmd+])"
+          title="Bring forward"
+          data-testid="properties-bring-forward"
           onClick={() => reorderZ(selectedNodeIds, 'forward')}
         >
-          <BringToFront size={16} />
+          <BringToFront size={14} />
+          <span>Forward</span>
         </button>
         <button
           type="button"
-          className="btn btn-ghost btn-icon"
+          className="side-panel-action"
           aria-label="Send backward"
-          title="Send backward (Ctrl/Cmd+[)"
+          title="Send backward"
+          data-testid="properties-send-backward"
           onClick={() => reorderZ(selectedNodeIds, 'backward')}
         >
-          <SendToBack size={16} />
+          <SendToBack size={14} />
+          <span>Back</span>
         </button>
-        <button
-          type="button"
-          className="btn btn-ghost btn-icon"
-          aria-label="Bring to front"
-          title="Bring to front"
-          onClick={() => reorderZ(selectedNodeIds, 'front')}
-        >
-          <BringToFront size={16} />
-        </button>
-        <button
-          type="button"
-          className="btn btn-ghost btn-icon"
-          aria-label="Send to back"
-          title="Send to back"
-          onClick={() => reorderZ(selectedNodeIds, 'back')}
-        >
-          <SendToBack size={16} />
-        </button>
+        <div className="side-panel-overflow">
+          <button
+            type="button"
+            className="side-panel-action"
+            aria-label="More actions"
+            aria-expanded={overflowOpen}
+            title="More"
+            data-testid="properties-more"
+            onClick={() => setOverflowOpen((v) => !v)}
+          >
+            <MoreHorizontal size={14} />
+            <span>More</span>
+          </button>
+          {overflowOpen ? (
+            <div className="side-panel-overflow-menu" role="menu">
+              <button
+                type="button"
+                role="menuitem"
+                className="side-panel-overflow-item"
+                onClick={() => {
+                  reorderZ(selectedNodeIds, 'front')
+                  setOverflowOpen(false)
+                }}
+              >
+                Bring to front
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="side-panel-overflow-item"
+                onClick={() => {
+                  reorderZ(selectedNodeIds, 'back')
+                  setOverflowOpen(false)
+                }}
+              >
+                Send to back
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="side-panel-overflow-item"
+                data-testid="properties-select-similar"
+                onClick={() => {
+                  selectSimilar()
+                  setOverflowOpen(false)
+                }}
+              >
+                Select similar
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="side-panel-overflow-item is-danger"
+                data-testid="properties-delete"
+                onClick={() => {
+                  removeNodes(selectedNodeIds)
+                  setOverflowOpen(false)
+                }}
+              >
+                Delete
+              </button>
+            </div>
+          ) : null}
+        </div>
       </div>
 
       <div className="side-panel-tabs" role="tablist" aria-label="Node panel sections">

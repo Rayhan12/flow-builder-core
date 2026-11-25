@@ -36,6 +36,9 @@ import {
   DIAGRAM_SIZE_WARN_BYTES,
   estimateDiagramBytes,
 } from '../editor/fixtures/largeDiagram'
+import { dropPositionFromFlowPoint } from '../editor/paletteDrop'
+import { getLastFlowPoint } from '../editor/pointerPosition'
+import { DEFAULT_NODE_HEIGHT, DEFAULT_NODE_WIDTH } from '../editor/alignment'
 import {
   diagramFilename,
   downloadJsonFile,
@@ -254,7 +257,8 @@ function EditorInner() {
         copySelection()
       } else if (key === 'v' && !typing) {
         e.preventDefault()
-        pasteClipboard()
+        const cursor = getLastFlowPoint()
+        pasteClipboard(cursor ?? undefined)
       } else if (key === 'd' && !typing) {
         e.preventDefault()
         duplicateSelection()
@@ -308,6 +312,14 @@ function EditorInner() {
 
   const onAddKind = useCallback(
     (kind: NodeKind) => {
+      const cursor = getLastFlowPoint()
+      if (cursor) {
+        addNode(kind, dropPositionFromFlowPoint(cursor, {
+          nodeWidth: DEFAULT_NODE_WIDTH,
+          nodeHeight: DEFAULT_NODE_HEIGHT,
+        }))
+        return
+      }
       const offset = useEditorStore.getState().diagram?.nodes.length ?? 0
       addNode(kind, {
         x: 120 + (offset % 4) * 280,
@@ -384,6 +396,17 @@ function EditorInner() {
     (result: NodeSearchResult) => {
       setNodeSearchOpen(false)
       if (result.type === 'add') {
+        const cursor = getLastFlowPoint()
+        if (cursor) {
+          addNode(
+            result.kind,
+            dropPositionFromFlowPoint(cursor, {
+              nodeWidth: DEFAULT_NODE_WIDTH,
+              nodeHeight: DEFAULT_NODE_HEIGHT,
+            }),
+          )
+          return
+        }
         const offset = useEditorStore.getState().diagram?.nodes.length ?? 0
         addNode(result.kind, { x: 120 + (offset % 5) * 40, y: 80 + (offset % 5) * 40 })
         return

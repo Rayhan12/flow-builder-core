@@ -5,6 +5,8 @@ import { applyZOrder, type ZOrderAction } from '../editor/zOrder'
 
 const MAX_HISTORY = 80
 const PASTE_OFFSET = 40
+const DEFAULT_NODE_WIDTH_FALLBACK = 256
+const DEFAULT_NODE_HEIGHT_FALLBACK = 64
 
 type ClipboardPayload = {
   nodes: DiagramNode[]
@@ -81,8 +83,9 @@ type EditorState = {
   reorderZ: (ids: string[], action: ZOrderAction) => void
 
   copySelection: () => boolean
-  pasteClipboard: () => boolean
+  pasteClipboard: (at?: { x: number; y: number }) => boolean
   duplicateSelection: () => boolean
+  selectSimilar: () => boolean
 
   undo: () => void
   redo: () => void
@@ -402,8 +405,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           id: newEdgeId(),
           source: conn.source,
           target: conn.target,
-          sourceHandle: conn.sourceHandle ?? undefined,
-          targetHandle: conn.targetHandle ?? undefined,
+          sourceHandle: conn.sourceHandle || 'bottom',
+          targetHandle: conn.targetHandle || 'top',
         }
         const sourceNode = d.nodes.find((n) => n.id === conn.source)
         if (sourceNode?.kind === 'decision' && conn.sourceHandle) {
@@ -598,19 +601,36 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     return true
   },
 
-  pasteClipboard: () => {
+  pasteClipboard: (at) => {
     if (!editorClipboard || editorClipboard.nodes.length === 0) return false
-    const { nodes, edges } = remapClipboard(editorClipboard, {
-      x: PASTE_OFFSET,
-      y: PASTE_OFFSET,
-    })
-    // Nudge clipboard so repeated pastes keep offsetting
-    editorClipboard = {
-      nodes: editorClipboard.nodes.map((n) => ({
-        ...n,
-        position: { x: n.position.x + PASTE_OFFSET, y: n.position.y + PASTE_OFFSET },
-      })),
-      edges: editorClipboard.edges,
+
+    let offset = { x: PASTE_OFFSET, y: PASTE_OFFSET }
+    if (at) {
+      const xs = editorClipboard.nodes.map((n) => n.position.x)
+      const ys = editorClipboard.nodes.map((n) => n.position.y)
+      const minX = Math.min(...xs)
+      const minY = Math.min(...ys)
+      const maxX = Math.max(
+        ...editorClipboard.nodes.map((n) => n.position.x + (n.size?.w ?? DEFAULT_NODE_WIDTH_FALLBACK)),
+      )
+      const maxY = Math.max(
+        ...editorClipboard.nodes.map((n) => n.position.y + (n.size?.h ?? DEFAULT_NODE_HEIGHT_FALLBACK)),
+      )
+      const cx = (minX + maxX) / 2
+      const cy = (minY + maxY) / 2
+      offset = { x: at.x - cx, y: at.y - cy }
+    }
+
+    const { nodes, edges } = remapClipboard(editorClipboard, offset)
+    // Nudge clipboard so repeated pastes keep offsetting when no cursor target.
+    if (!at) {
+      editorClipboard = {
+        nodes: editorClipboard.nodes.map((n) => ({
+          ...n,
+          position: { x: n.position.x + PASTE_OFFSET, y: n.position.y + PASTE_OFFSET },
+        })),
+        edges: editorClipboard.edges,
+      }
     }
 
     set((state) =>
@@ -631,6 +651,18 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const copied = get().copySelection()
     if (!copied) return false
     return get().pasteClipboard()
+  },
+
+  selectSimilar: () => {
+    const state = get()
+    if (!state.diagram || state.selectedNodeIds.length === 0) return false
+    const selected = state.diagram.nodes.filter((n) => state.selectedNodeIds.includes(n.id))
+    if (selected.length === 0) return false
+    const kind = selected[0].kind
+    if (!selected.every((n) => n.kind === kind)) return false
+    const ids = state.diagram.nodes.filter((n) => n.kind === kind).map((n) => n.id)
+    set({ selectedNodeIds: ids, selectedEdgeIds: [] })
+    return true
   },
 
   undo: () =>
@@ -680,3 +712,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   markDirty: () => set({ saveStatus: 'dirty' }),
 }))
+
+// E2E / debug access (never used by product UI).
+if (typeof window !== 'undefined') {
+  ;(window as unknown as { __FLOW_BUILDER_STORE__: typeof useEditorStore }).__FLOW_BUILDER_STORE__ =
+    useEditorStore
+}
