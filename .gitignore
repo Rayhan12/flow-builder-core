@@ -37,3 +37,6 @@ emulator-data/
 
 # Cursor CLI run logs
 .cursor-runs/
+
+# graft's local graph cache — regenerable, not committed (run `graft build`).
+/graft/

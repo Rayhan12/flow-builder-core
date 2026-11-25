@@ -223,3 +223,10 @@ With no Firebase values in `.env.local`, the app uses the emulators and the `dem
 ## 12. Out of scope for now
 
 Real-time multi-user editing, sharing links, comments, Cloud Functions, paid Firebase features.
+
+## 13. Update from Rayhan (Nov 25)
+
+- Real Firebase project: `flow-builder-core`. Firestore and Email/Password auth are enabled. Open sign-up is fine. Per-user `firestore.rules` are deployed.
+- Each user enters their own Gemini key in Settings. If a user opens or uses the AI chat without a key, the app must show a clear prompt (inline card or dialog) asking for the key, with a link to Settings and a field to paste it right there. Then the chat continues.
+- Hosting will be deployed to https://flow-builder-core.web.app once the app works (M7 is approved).
+- UI must follow docs/DESIGN_SYSTEM.md (tokens and component patterns, based on the Brex style from https://styles.refero.design/, reference only). Apply it to every screen, including ones built in earlier milestones.

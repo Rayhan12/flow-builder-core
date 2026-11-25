@@ -17,9 +17,13 @@ export const app = initializeApp(firebaseConfig)
 export const auth = getAuth(app)
 export const db = getFirestore(app)
 
-export const usingEmulators = env.VITE_USE_EMULATORS === 'true' || !env.VITE_FIREBASE_API_KEY
+export const usingEmulators =
+  env.VITE_USE_EMULATORS === 'true' || !env.VITE_FIREBASE_API_KEY
 
-if (usingEmulators) {
+let emulatorsConnected = false
+
+if (usingEmulators && !emulatorsConnected) {
   connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true })
   connectFirestoreEmulator(db, '127.0.0.1', 8080)
+  emulatorsConnected = true
 }
