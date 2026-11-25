@@ -15,19 +15,39 @@ import {
   type ReactNode,
 } from 'react'
 import { auth, db } from '../lib/firebase'
+import { ensureUserAndDefaultProject, migrateLegacyDiagramsIfNeeded } from '../data/migration'
 import { AuthContext } from './authContext'
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
+  const [migrating, setMigrating] = useState(false)
+
+  const runPostSignIn = useCallback(async (next: User) => {
+    setMigrating(true)
+    try {
+      await ensureUserAndDefaultProject(next.uid, {
+        email: next.email,
+        displayName: next.displayName,
+      })
+      await migrateLegacyDiagramsIfNeeded(next.uid)
+    } catch (err) {
+      console.error('Post sign-in setup failed', err)
+    } finally {
+      setMigrating(false)
+    }
+  }, [])
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (next) => {
       setUser(next)
       setLoading(false)
+      if (next) {
+        void runPostSignIn(next)
+      }
     })
     return unsub
-  }, [])
+  }, [runPostSignIn])
 
   const signIn = useCallback(async (email: string, password: string) => {
     await signInWithEmailAndPassword(auth, email.trim(), password)
@@ -50,6 +70,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           aiModel: 'gemini-2.5-flash',
         },
       })
+      await ensureUserAndDefaultProject(cred.user.uid, {
+        email: cred.user.email,
+        displayName: name || cred.user.displayName,
+      })
     },
     [],
   )
@@ -59,8 +83,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const value = useMemo(
-    () => ({ user, loading, signIn, signUp, signOut }),
-    [user, loading, signIn, signUp, signOut],
+    () => ({ user, loading, migrating, signIn, signUp, signOut }),
+    [user, loading, migrating, signIn, signUp, signOut],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

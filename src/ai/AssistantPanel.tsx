@@ -37,6 +37,7 @@ type ChatItem =
 type AssistantPanelProps = {
   open: boolean
   onClose: () => void
+  projectId: string
   diagramId: string
   providerFactory?: (apiKey: string, model: string) => LLMProvider
 }
@@ -52,6 +53,7 @@ function diffCounts(diff: DiagramDiff) {
 export function AssistantPanel({
   open,
   onClose,
+  projectId,
   diagramId,
   providerFactory = (apiKey, model) => createGeminiProvider({ apiKey, model }),
 }: AssistantPanelProps) {
@@ -83,7 +85,7 @@ export function AssistantPanel({
         const settings = await getUserSettings(uid)
         if (cancelled) return
         setModel(settings.aiModel)
-        const messages = await listMessages(uid, diagramId)
+        const messages = await listMessages(uid, projectId, diagramId)
         if (cancelled) return
         setItems(messagesToItems(messages))
         setLoadError(null)
@@ -95,7 +97,7 @@ export function AssistantPanel({
     return () => {
       cancelled = true
     }
-  }, [open, uid, diagramId])
+  }, [open, uid, projectId, diagramId])
 
   useEffect(() => {
     if (!open) return
@@ -134,7 +136,7 @@ export function AssistantPanel({
     setItems((prev) => [...prev, userItem])
 
     try {
-      await addMessage(uid, diagramId, { role: 'user', text: trimmed })
+      await addMessage(uid, projectId, diagramId, { role: 'user', text: trimmed })
 
       const history: ChatMessage[] = items
         .filter((i) => i.kind === 'user' || i.kind === 'assistant-text' || i.kind === 'proposal')
@@ -156,7 +158,7 @@ export function AssistantPanel({
           ...prev,
           { id: localId('e'), kind: 'error', text: parsed.error },
         ])
-        await addMessage(uid, diagramId, {
+        await addMessage(uid, projectId, diagramId, {
           role: 'assistant',
           text: `Could not use that reply: ${parsed.error}`,
           applied: false,
@@ -164,7 +166,7 @@ export function AssistantPanel({
         return
       }
 
-      await handleParsedResponse(uid, diagramId, diagram, parsed.value)
+      await handleParsedResponse(uid, projectId, diagramId, diagram, parsed.value)
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Request failed'
       setItems((prev) => [
@@ -178,6 +180,7 @@ export function AssistantPanel({
 
   async function handleParsedResponse(
     ownerId: string,
+    pId: string,
     dId: string,
     current: Diagram,
     response: AiResponse,
@@ -189,7 +192,7 @@ export function AssistantPanel({
         ...prev,
         { id: localId('e'), kind: 'error', text: preview.error },
       ])
-      await addMessage(ownerId, dId, {
+      await addMessage(ownerId, pId, dId, {
         role: 'assistant',
         text: `Could not apply that reply: ${preview.error}`,
         applied: false,
@@ -198,7 +201,7 @@ export function AssistantPanel({
     }
 
     if (preview.kind === 'message') {
-      const saved = await addMessage(ownerId, dId, {
+      const saved = await addMessage(ownerId, pId, dId, {
         role: 'assistant',
         text: preview.text,
         applied: false,
@@ -211,7 +214,7 @@ export function AssistantPanel({
     }
 
     const ops = response.type === 'ops' ? response.ops : undefined
-    const saved = await addMessage(ownerId, dId, {
+    const saved = await addMessage(ownerId, pId, dId, {
       role: 'assistant',
       text: preview.diff.summary,
       ops,
@@ -253,9 +256,9 @@ export function AssistantPanel({
     lastAppliedRef.current = item.id
 
     try {
-      await saveVersion(uid, diagramId, next, 'ai-apply')
+      await saveVersion(uid, projectId, diagramId, next, 'ai-apply')
       if (item.messageId) {
-        await markMessageApplied(uid, diagramId, item.messageId, true)
+        await markMessageApplied(uid, projectId, diagramId, item.messageId, true)
       }
     } catch {
       // version/history persistence is best-effort; diagram change already applied locally

@@ -4,6 +4,7 @@ import type { User } from 'firebase/auth'
 export type AuthContextValue = {
   user: User | null
   loading: boolean
+  migrating?: boolean
   signIn: (email: string, password: string) => Promise<void>
   signUp: (email: string, password: string, displayName?: string) => Promise<void>
   signOut: () => Promise<void>

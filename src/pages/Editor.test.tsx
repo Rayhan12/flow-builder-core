@@ -16,6 +16,10 @@ vi.mock('../data/diagrams', () => ({
   saveDiagram: (...args: unknown[]) => saveDiagram(...args),
 }))
 
+vi.mock('../data/projects', () => ({
+  ensureDefaultProject: vi.fn().mockResolvedValue({ id: 'p1', name: 'My first project' }),
+}))
+
 const authValue: AuthContextValue = {
   user: { uid: 'u1', email: 'a@b.com' } as AuthContextValue['user'],
   loading: false,

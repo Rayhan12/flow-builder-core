@@ -19,6 +19,10 @@ vi.mock('../data/diagrams', () => ({
   deleteDiagram: (...args: unknown[]) => deleteDiagram(...args),
 }))
 
+vi.mock('../data/projects', () => ({
+  ensureDefaultProject: vi.fn().mockResolvedValue({ id: 'p1', name: 'My first project' }),
+}))
+
 const authValue: AuthContextValue = {
   user: { uid: 'u1', email: 'a@b.com' } as AuthContextValue['user'],
   loading: false,
@@ -60,7 +64,7 @@ describe('DiagramsPage', () => {
     await user.click(screen.getAllByRole('button', { name: 'New diagram' })[0])
 
     await waitFor(() => {
-      expect(createDiagram).toHaveBeenCalledWith('u1', 'Untitled diagram')
+      expect(createDiagram).toHaveBeenCalledWith('u1', 'p1', 'Untitled diagram')
     })
   })
 

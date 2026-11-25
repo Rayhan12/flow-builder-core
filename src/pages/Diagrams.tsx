@@ -1,6 +1,6 @@
 import { Copy, FilePlus2, Pencil, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 import { EmptyState } from '../components/EmptyState'
 import {
@@ -11,6 +11,7 @@ import {
   renameDiagram,
   type DiagramListItem,
 } from '../data/diagrams'
+import { ensureDefaultProject } from '../data/projects'
 
 function formatUpdatedAt(value: Date | null): string {
   if (!value) return 'Just now'
@@ -20,11 +21,17 @@ function formatUpdatedAt(value: Date | null): string {
   }).format(value)
 }
 
+function editorPath(projectId: string, diagramId: string): string {
+  return `/p/${projectId}/d/${diagramId}`
+}
+
 export function DiagramsPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const { projectId: routeProjectId } = useParams<{ projectId?: string }>()
   const uid = user?.uid
 
+  const [projectId, setProjectId] = useState<string | null>(routeProjectId ?? null)
   const [items, setItems] = useState<DiagramListItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -34,19 +41,42 @@ export function DiagramsPage() {
   const [renameValue, setRenameValue] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<DiagramListItem | null>(null)
 
-  const refresh = useCallback(async () => {
-    if (!uid) return
-    const next = await listDiagrams(uid)
-    setItems(next)
-  }, [uid])
-
   useEffect(() => {
     if (!uid) return
+    let cancelled = false
+    void (async () => {
+      try {
+        let pid = routeProjectId
+        if (!pid) {
+          const project = await ensureDefaultProject(uid)
+          pid = project.id
+        }
+        if (cancelled) return
+        setProjectId(pid)
+      } catch (err) {
+        if (cancelled) return
+        setError(err instanceof Error ? err.message : 'Could not load project')
+        setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [uid, routeProjectId])
+
+  const refresh = useCallback(async () => {
+    if (!uid || !projectId) return
+    const next = await listDiagrams(uid, projectId)
+    setItems(next)
+  }, [uid, projectId])
+
+  useEffect(() => {
+    if (!uid || !projectId) return
     let cancelled = false
 
     void (async () => {
       try {
-        const next = await listDiagrams(uid)
+        const next = await listDiagrams(uid, projectId)
         if (cancelled) return
         setItems(next)
         setError(null)
@@ -61,15 +91,15 @@ export function DiagramsPage() {
     return () => {
       cancelled = true
     }
-  }, [uid])
+  }, [uid, projectId])
 
   async function onCreate() {
-    if (!uid || busy) return
+    if (!uid || !projectId || busy) return
     setBusy(true)
     setError(null)
     try {
-      const created = await createDiagram(uid, 'Untitled diagram')
-      navigate(`/diagrams/${created.id}`)
+      const created = await createDiagram(uid, projectId, 'Untitled diagram')
+      navigate(editorPath(projectId, created.id))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not create diagram')
       setBusy(false)
@@ -77,11 +107,11 @@ export function DiagramsPage() {
   }
 
   async function onDuplicate(item: DiagramListItem) {
-    if (!uid || busy) return
+    if (!uid || !projectId || busy) return
     setBusy(true)
     setError(null)
     try {
-      await duplicateDiagram(uid, item.id)
+      await duplicateDiagram(uid, projectId, item.id)
       await refresh()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not duplicate diagram')
@@ -92,13 +122,13 @@ export function DiagramsPage() {
 
   async function onRenameSubmit(e: FormEvent) {
     e.preventDefault()
-    if (!uid || !renameTarget || busy) return
+    if (!uid || !projectId || !renameTarget || busy) return
     const title = renameValue.trim()
     if (!title) return
     setBusy(true)
     setError(null)
     try {
-      await renameDiagram(uid, renameTarget.id, title)
+      await renameDiagram(uid, projectId, renameTarget.id, title)
       setRenameTarget(null)
       await refresh()
     } catch (err) {
@@ -109,11 +139,11 @@ export function DiagramsPage() {
   }
 
   async function onDeleteConfirm() {
-    if (!uid || !deleteTarget || busy) return
+    if (!uid || !projectId || !deleteTarget || busy) return
     setBusy(true)
     setError(null)
     try {
-      await deleteDiagram(uid, deleteTarget.id)
+      await deleteDiagram(uid, projectId, deleteTarget.id)
       setDeleteTarget(null)
       await refresh()
     } catch (err) {
@@ -134,7 +164,7 @@ export function DiagramsPage() {
           type="button"
           className="btn btn-primary"
           onClick={() => void onCreate()}
-          disabled={busy || !uid}
+          disabled={busy || !uid || !projectId}
         >
           <FilePlus2 size={16} aria-hidden />
           New diagram
@@ -159,7 +189,7 @@ export function DiagramsPage() {
               type="button"
               className="btn btn-primary"
               onClick={() => void onCreate()}
-              disabled={busy || !uid}
+              disabled={busy || !uid || !projectId}
             >
               New diagram
             </button>
@@ -169,7 +199,10 @@ export function DiagramsPage() {
         <ul className="diagram-list">
           {items.map((item) => (
             <li key={item.id} className="diagram-row">
-              <Link to={`/diagrams/${item.id}`} className="diagram-row-main">
+              <Link
+                to={projectId ? editorPath(projectId, item.id) : '/'}
+                className="diagram-row-main"
+              >
                 <h2 className="diagram-title">{item.title}</h2>
                 <p className="diagram-meta">
                   {item.nodeCount} {item.nodeCount === 1 ? 'node' : 'nodes'}

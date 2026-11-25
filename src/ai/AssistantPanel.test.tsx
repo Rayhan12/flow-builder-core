@@ -66,6 +66,7 @@ function renderPanel(provider?: LLMProvider) {
         <AssistantPanel
           open
           onClose={() => undefined}
+          projectId="p1"
           diagramId="d1"
           providerFactory={
             provider

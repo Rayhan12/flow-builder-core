@@ -40,8 +40,17 @@ export default function App() {
               }
             >
               <Route index element={<DiagramsPage />} />
+              <Route path="p/:projectId" element={<DiagramsPage />} />
               <Route path="settings" element={<SettingsPage />} />
             </Route>
+            <Route
+              path="/p/:projectId/d/:diagramId"
+              element={
+                <ProtectedRoute>
+                  <EditorPage />
+                </ProtectedRoute>
+              }
+            />
             <Route
               path="/diagrams/:diagramId"
               element={

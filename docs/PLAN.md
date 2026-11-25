@@ -37,7 +37,7 @@ src/
   lib/firebase.ts          Firebase init, emulator switch
   schema/                  zod schema, types, migrations (v1 -> vN)
   store/                   editor store, history (undo/redo), selection
-  data/                    Firestore repo: diagrams, versions, messages, settings
+  data/                    Firestore repo: projects, diagrams, versions, messages, migration, settings
   editor/
     Canvas.tsx             React Flow canvas, minimap, controls, background
     nodes/                 one component per node kind
@@ -110,16 +110,26 @@ Limits checked by zod: max 2,000 nodes, 4,000 edges, labels up to 200 characters
 ```
 users/{uid}
   email, displayName, createdAt, settings: { theme, aiProvider, aiModel }
+  migration?: { legacyDiagramsDone?: bool }
 
-users/{uid}/diagrams/{diagramId}
+users/{uid}/projects/{projectId}
+  name, color, icon, createdAt, updatedAt, diagramCount
+
+users/{uid}/projects/{projectId}/diagrams/{diagramId}
   ownerId, title, schemaVersion, doc (the diagram JSON above, minus id),
   nodeCount, createdAt, updatedAt, revision
 
-users/{uid}/diagrams/{diagramId}/versions/{versionId}
+users/{uid}/projects/{projectId}/diagrams/{diagramId}/versions/{versionId}
   doc, createdAt, reason ("manual" | "ai-apply" | "import")
 
-users/{uid}/diagrams/{diagramId}/messages/{messageId}
+users/{uid}/projects/{projectId}/diagrams/{diagramId}/messages/{messageId}
   role ("user" | "assistant"), text, ops?, createdAt, applied (bool)
+
+users/{uid}/agentChats/{chatId}
+  (per-user AI agent panel; schema TBD in section 16)
+
+users/{uid}/diagrams/{diagramId}
+  legacy path kept for migration (read/delete by owner)
 ```
 
 Firestore docs have a 1 MiB limit. A 2,000 node diagram is well under that in practice. If a doc grows past about 700 KB we warn the user; a later milestone can split nodes into chunk docs (this is why `schemaVersion` exists).
@@ -238,7 +248,7 @@ These come after M6. M7 (deploy) is handled outside the coding runs. Do them in 
 | # | Milestone | Done when |
 |---|---|---|
 | M8 | **Decision-flow editor polish (Taktile-like).** Follow docs/DESIGN_SYSTEM.md section 0 and 10. Taktile's decision-flow editor is the primary reference, Refero (Brex) the secondary one. Rework node cards, side panel, toolbar, palette, edges and the canvas grid. Canvas: crisp dot grid (with a line grid option), snap-to-grid always on by default (16px), alignment guides while dragging (centre and edge lines to nearby nodes), clean orthogonal edge routing (smoothstep with rounded corners, no overlaps through nodes where elk can help), tidy handles, "+" insert button on edge hover. Polished, a bit edgy, crisp 1px lines. No Taktile logo, name or code. | Looks clearly like a pro decision-flow editor; snapping and guides work; tests pass |
-| M9 | **Projects.** After sign in the user lands on a Projects list (create, rename, delete with confirm dialog that says how many diagrams will go). Each project holds its own diagrams. Firestore: `users/{uid}/projects/{pid}` with `name, createdAt, updatedAt, diagramCount`, and diagrams at `users/{uid}/projects/{pid}/diagrams/{did}` with `versions` and `messages` under each diagram (AI chat stays per diagram). Routes: `/projects`, `/projects/:pid`, `/projects/:pid/diagrams/:did`. Update firestore.rules and rules tests for the new paths (owner only), keep the old `users/{uid}/diagrams` path readable and deletable by the owner for migration. Migration: on sign in, if old top-level diagrams exist, copy them (with versions and messages) into a "My first project" default project, then delete the old ones, once, idempotent. Every new user (email or Google) gets a user doc and a default project. Deleting a project deletes its diagrams and their subcollections client side in batches. | Projects CRUD works on emulators; migration test passes; rules tests pass |
+| M9 | **Projects.** After sign in the user lands on a Projects dashboard (`/`). Create, rename, recolour and delete projects (delete confirms diagram count). Each project holds its own diagrams with `color` and `icon` on the project doc. Firestore: `users/{uid}/projects/{pid}` with `name, color, icon, createdAt, updatedAt, diagramCount`, diagrams at `users/{uid}/projects/{pid}/diagrams/{did}` with `versions` and `messages` under each diagram (AI chat stays per diagram). Routes: `/` dashboard, `/p/:projectId` project diagram list, `/p/:projectId/d/:diagramId` editor. Legacy `/diagrams/:diagramId` editor route resolves the default project until redirects are removed. Keep old `users/{uid}/diagrams` readable and deletable by the owner for migration. Migration on sign in copies legacy diagrams (with versions and messages) into "My first project", then deletes legacy docs, idempotent via `migration.legacyDiagramsDone`. Every new user gets a user doc and default project. Deleting a project deletes diagrams and subcollections client side in batches (~400). | Projects CRUD works on emulators; migration test passes; rules tests pass |
 | M10 | **Richer editing and Google sign in.** Copy, cut, paste (Cmd/Ctrl+C/X/V, keeps edges between copied nodes, offsets position), duplicate (Cmd/Ctrl+D), multi-select (shift click, drag box), align (left, centre, right, top, middle, bottom) and distribute (horizontal, vertical) from a toolbar that appears when 2+ nodes are selected, editable edge labels (double click edge), search on the canvas (Cmd/Ctrl+F or K: find nodes by label, description or kind, jump and highlight). "Continue with Google" button on sign in and sign up screens: `signInWithPopup` with `GoogleAuthProvider`, fall back to `signInWithRedirect` when the popup is blocked (`auth/popup-blocked`, `auth/cancelled-popup-request`, `auth/operation-not-supported-in-environment`), handle `getRedirectResult` on load. Styled per design system (secondary button, Google "G" mark drawn as a simple inline SVG, which is allowed for sign-in buttons). Keep email and password. First-time Google users get their user doc and default project. | All features work; tests pass |
 | M11 | **MCP server for AI agents (Vercel function).** See section 15. | Token auth and scoping tests pass; `npm run build`, lint and tests pass; local MCP call against emulators works |
 
@@ -287,3 +297,7 @@ Goal: let a user's own AI agent (Cursor, Claude Desktop, others) read and edit t
 - Server credential env var is **`FIREBASE_SERVICE_ACCOUNT_KEY`** (already set in Vercel). Accept either base64 or raw JSON (try JSON.parse first, else base64 decode then parse). Fall back to `FIREBASE_SERVICE_ACCOUNT` with the same handling. `FIREBASE_PROJECT_ID` is also set. Update docs/DEPLOY.md and .env.example to these names.
 - Order changed: M9 (Projects) runs before M11, and M10 runs after M11.
 - Make sure the Vercel build passes: `vercel.json` must not break the existing SPA deploy, the function must bundle its imports from `src/` or `server/` (avoid browser-only imports in shared code), and `firebase-admin` and `@modelcontextprotocol/sdk` must be in `dependencies`.
+
+## 16. AI agent panel (after M9 data layer)
+
+Shared Firestore layout: `users/{uid}/agentChats/{chatId}` for per-user agent conversations (separate from per-diagram AI chat under each diagram). The panel UI will reuse the same provider interface, ops, and project-scoped diagram tools as the in-editor assistant and the MCP server (section 15). Implementation is a follow-up task once the Projects UI ships; rules for `agentChats` are in place now.

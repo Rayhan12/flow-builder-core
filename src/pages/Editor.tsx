@@ -25,6 +25,7 @@ import { AssistantPanel } from '../ai/AssistantPanel'
 import { useAuth } from '../auth/useAuth'
 import { EmptyState } from '../components/EmptyState'
 import { getDiagram, saveDiagram } from '../data/diagrams'
+import { ensureDefaultProject } from '../data/projects'
 import {
   cycleGridMode,
   gridModeLabel,
@@ -71,7 +72,11 @@ export function EditorPage() {
 }
 
 function EditorInner() {
-  const { diagramId } = useParams<{ diagramId: string }>()
+  const { projectId: routeProjectId, diagramId } = useParams<{
+    projectId?: string
+    diagramId?: string
+  }>()
+  const [projectId, setProjectId] = useState<string | null>(routeProjectId ?? null)
   const { user } = useAuth()
   const { theme, toggleTheme } = useTheme()
   const { fitView, zoomIn, zoomOut } = useReactFlow()
@@ -115,6 +120,22 @@ function EditorInner() {
   const ioMenuRef = useRef<HTMLDivElement>(null)
   const uid = user?.uid
 
+  useEffect(() => {
+    if (routeProjectId) {
+      setProjectId(routeProjectId)
+      return
+    }
+    if (!uid) return
+    let cancelled = false
+    void (async () => {
+      const project = await ensureDefaultProject(uid)
+      if (!cancelled) setProjectId(project.id)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [uid, routeProjectId])
+
   const sizeWarning = useMemo(() => {
     if (!diagram) return null
     const bytes = estimateDiagramBytes(diagram)
@@ -124,12 +145,12 @@ function EditorInner() {
   }, [diagram])
 
   useEffect(() => {
-    if (!uid || !diagramId) return
+    if (!uid || !projectId || !diagramId) return
     let cancelled = false
 
     void (async () => {
       try {
-        const record = await getDiagram(uid, diagramId)
+        const record = await getDiagram(uid, projectId, diagramId)
         if (cancelled) return
         if (!record) {
           setLoadError('Diagram not found')
@@ -156,24 +177,30 @@ function EditorInner() {
       cancelled = true
       reset()
     }
-  }, [uid, diagramId, load, reset])
+  }, [uid, projectId, diagramId, load, reset])
 
   const persist = useCallback(async () => {
     const state = useEditorStore.getState()
-    if (!uid || !diagramId || !state.diagram) return
+    if (!uid || !projectId || !diagramId || !state.diagram) return
     if (state.saveStatus !== 'dirty' && state.saveStatus !== 'error') return
     if (savingRef.current) return
     savingRef.current = true
     markSaving()
     try {
-      const nextRevision = await saveDiagram(uid, diagramId, state.diagram, state.revision)
+      const nextRevision = await saveDiagram(
+        uid,
+        projectId,
+        diagramId,
+        state.diagram,
+        state.revision,
+      )
       markSaved(nextRevision)
     } catch (err) {
       markSaveError(err instanceof Error ? err.message : 'Could not save')
     } finally {
       savingRef.current = false
     }
-  }, [uid, diagramId, markSaving, markSaved, markSaveError])
+  }, [uid, projectId, diagramId, markSaving, markSaved, markSaveError])
 
   useEffect(() => {
     if (saveStatus !== 'dirty') return
@@ -618,10 +645,11 @@ function EditorInner() {
             </button>
           }
         />
-        {assistantOpen && diagramId ? (
+        {assistantOpen && projectId && diagramId ? (
           <AssistantPanel
             open={assistantOpen}
             onClose={() => setAssistantOpen(false)}
+            projectId={projectId}
             diagramId={diagramId}
           />
         ) : (
