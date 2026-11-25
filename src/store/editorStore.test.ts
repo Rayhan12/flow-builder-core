@@ -92,6 +92,25 @@ describe('editorStore', () => {
     expect(useEditorStore.getState().saveStatus).toBe('dirty')
   })
 
+  it('inserts a node on an edge and splits the connection', () => {
+    useEditorStore.getState().load(createEmptyDiagram('d1'), 0)
+    const a = useEditorStore.getState().addNode('start', { x: 0, y: 0 })!
+    const b = useEditorStore.getState().addNode('end', { x: 0, y: 160 })!
+    useEditorStore.getState().addEdgeFromConnection({ source: a, target: b })
+    const edgeId = useEditorStore.getState().diagram!.edges[0]!.id
+
+    const midId = useEditorStore.getState().insertNodeOnEdge(edgeId, 'step')
+    expect(midId).toBeTruthy()
+
+    const d = useEditorStore.getState().diagram!
+    expect(d.nodes).toHaveLength(3)
+    expect(d.edges).toHaveLength(2)
+    expect(d.edges.some((e) => e.id === edgeId)).toBe(false)
+    expect(d.edges.some((e) => e.source === a && e.target === midId)).toBe(true)
+    expect(d.edges.some((e) => e.source === midId && e.target === b)).toBe(true)
+    expect(useEditorStore.getState().selectedNodeIds).toEqual([midId])
+  })
+
   it('copies, pastes and duplicates selected nodes with new ids', () => {
     useEditorStore.getState().load(createEmptyDiagram('d1'), 0)
     const a = useEditorStore.getState().addNode('step', { x: 10, y: 20 })!

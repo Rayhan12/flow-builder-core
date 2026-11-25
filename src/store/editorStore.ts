@@ -64,6 +64,7 @@ type EditorState = {
     sourceHandle?: string | null
     targetHandle?: string | null
   }) => void
+  insertNodeOnEdge: (edgeId: string, kind: NodeKind) => string | null
   updateEdge: (id: string, patch: Partial<DiagramEdge>) => void
   removeEdges: (ids: string[]) => void
 
@@ -384,6 +385,52 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         return { ...d, edges: [...d.edges, edge] }
       }),
     )
+  },
+
+  insertNodeOnEdge: (edgeId, kind) => {
+    if (kind === 'group') return null
+    let createdId: string | null = null
+    set((state) =>
+      withHistory(state, (d) => {
+        const edge = d.edges.find((e) => e.id === edgeId)
+        if (!edge) return d
+        const source = d.nodes.find((n) => n.id === edge.source)
+        const target = d.nodes.find((n) => n.id === edge.target)
+        if (!source || !target) return d
+
+        const mid = {
+          x: Math.round((source.position.x + target.position.x) / 2 / 16) * 16,
+          y: Math.round((source.position.y + target.position.y) / 2 / 16) * 16,
+        }
+        const node = createNodeOfKind(kind, mid)
+        createdId = node.id
+
+        const edgeToNew: DiagramEdge = {
+          id: newEdgeId(),
+          source: edge.source,
+          target: node.id,
+          sourceHandle: edge.sourceHandle,
+          label: edge.label,
+          color: edge.color,
+        }
+        const edgeFromNew: DiagramEdge = {
+          id: newEdgeId(),
+          source: node.id,
+          target: edge.target,
+          targetHandle: edge.targetHandle,
+        }
+
+        return {
+          ...d,
+          nodes: [...d.nodes, node],
+          edges: [...d.edges.filter((e) => e.id !== edgeId), edgeToNew, edgeFromNew],
+        }
+      }),
+    )
+    if (createdId) {
+      set({ selectedNodeIds: [createdId], selectedEdgeIds: [] })
+    }
+    return createdId
   },
 
   updateEdge: (id, patch) =>
