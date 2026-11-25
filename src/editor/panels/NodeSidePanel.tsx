@@ -1,12 +1,16 @@
+import { createElement, useState } from 'react'
 import { MousePointerClick, Plus, Trash2, X } from 'lucide-react'
 import { EmptyState } from '../../components/EmptyState'
 import type { DiagramNode } from '../../schema'
 import { useEditorStore } from '../../store/editorStore'
 import { ColourPicker } from '../ColourPicker'
 import { resolveColor } from '../colors'
-import { IconPicker } from '../IconPicker'
-import { newNodeId } from '../kinds'
 import { absolutePosition } from '../flowTypes'
+import { getLucideIcon } from '../icons'
+import { IconPicker } from '../IconPicker'
+import { KIND_META, newNodeId } from '../kinds'
+
+type PanelTab = 'settings' | 'look' | 'notes'
 
 export function NodeSidePanel() {
   const diagram = useEditorStore((s) => s.diagram)
@@ -16,6 +20,7 @@ export function NodeSidePanel() {
   const removeNodes = useEditorStore((s) => s.removeNodes)
   const setNodeParent = useEditorStore((s) => s.setNodeParent)
   const clearSelection = useEditorStore((s) => s.clearSelection)
+  const [tab, setTab] = useState<PanelTab>('settings')
 
   const node =
     diagram && selectedNodeIds.length === 1
@@ -41,11 +46,32 @@ export function NodeSidePanel() {
 
   const groups =
     diagram?.nodes.filter((n) => n.kind === 'group' && n.id !== node.id) ?? []
+  const meta = KIND_META[node.kind]
+  const color = resolveColor(node.color, meta.defaultColor)
+  const Icon = getLucideIcon(node.icon, meta.icon)
 
   return (
     <aside className="side-panel" aria-label="Node details">
       <div className="side-panel-header">
-        <h2>{node.kind === 'group' ? 'Group' : 'Node'}</h2>
+        <div className="side-panel-header-main">
+          <span
+            className="side-panel-header-icon"
+            style={{ background: color.tint, color: color.solid }}
+            aria-hidden
+          >
+            {createElement(Icon, { size: 16, strokeWidth: 2 })}
+          </span>
+          <div className="side-panel-header-text">
+            <span className="side-panel-kind">{meta.label}</span>
+            <input
+              className="side-panel-title-input"
+              value={node.label}
+              maxLength={200}
+              aria-label="Node title"
+              onChange={(e) => setField('label', e.target.value)}
+            />
+          </div>
+        </div>
         <button
           type="button"
           className="btn btn-ghost btn-icon"
@@ -56,87 +82,150 @@ export function NodeSidePanel() {
         </button>
       </div>
 
-      <section className="side-section">
-        <h3 className="side-section-label">General</h3>
-        <label className="field">
-          <span>Label</span>
-          <input
-            value={node.label}
-            maxLength={200}
-            onChange={(e) => setField('label', e.target.value)}
-          />
-        </label>
-        <label className="field">
-          <span>Description</span>
-          <textarea
-            className="field-textarea"
-            rows={3}
-            value={node.description ?? ''}
-            onChange={(e) => setField('description', e.target.value || undefined)}
-          />
-        </label>
-        {node.kind !== 'group' && groups.length > 0 ? (
-          <label className="field">
-            <span>Parent group</span>
-            <select
-              value={node.parentId ?? ''}
-              onChange={(e) => {
-                const next = e.target.value || undefined
-                const abs = absolutePosition(node, diagram!.nodes)
-                setNodeParent(node.id, next, abs)
-              }}
+      <div className="side-panel-tabs" role="tablist" aria-label="Node panel sections">
+        {(
+          [
+            ['settings', 'Settings'],
+            ['look', 'Look'],
+            ['notes', 'Notes'],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={tab === id}
+            className={`side-panel-tab ${tab === id ? 'is-active' : ''}`}
+            onClick={() => setTab(id)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'settings' ? (
+        <>
+          <section className="side-section">
+            <h3 className="side-section-label">General</h3>
+            <label className="field">
+              <span>Label</span>
+              <input
+                value={node.label}
+                maxLength={200}
+                onChange={(e) => setField('label', e.target.value)}
+              />
+              <p className="field-help">Short name shown on the node card.</p>
+            </label>
+            {node.kind !== 'group' && groups.length > 0 ? (
+              <label className="field">
+                <span>Parent group</span>
+                <select
+                  value={node.parentId ?? ''}
+                  onChange={(e) => {
+                    const next = e.target.value || undefined
+                    const abs = absolutePosition(node, diagram!.nodes)
+                    setNodeParent(node.id, next, abs)
+                  }}
+                >
+                  <option value="">None</option>
+                  {groups.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.kind === 'group' ? g.data.label : g.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="field-help">Nest this node inside a coloured segment.</p>
+              </label>
+            ) : null}
+          </section>
+
+          <KindDetails node={node} replaceNode={replaceNode} />
+
+          <section className="side-section">
+            <button
+              type="button"
+              className="btn btn-ghost btn-danger-icon"
+              onClick={() => removeNodes([node.id])}
             >
-              <option value="">None</option>
-              {groups.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.kind === 'group' ? g.data.label : g.label}
-                </option>
-              ))}
-            </select>
+              <Trash2 size={16} />
+              Delete {node.kind === 'group' ? 'group' : 'node'}
+            </button>
+          </section>
+        </>
+      ) : null}
+
+      {tab === 'look' ? (
+        <section className="side-section">
+          <h3 className="side-section-label">Look</h3>
+          <label className="field">
+            <span>Icon</span>
+            <IconPicker value={node.icon} onChange={(name) => setField('icon', name)} />
+            <p className="field-help">Pick a lucide icon for the coloured tile.</p>
           </label>
-        ) : null}
-      </section>
+          <label className="field">
+            <span>Colour</span>
+            <ColourPicker
+              value={node.color}
+              onChange={(nextColor) => {
+                if (node.kind === 'group') {
+                  replaceNode({
+                    ...node,
+                    color: nextColor,
+                    data: { ...node.data, color: nextColor },
+                  })
+                } else {
+                  setField('color', nextColor)
+                }
+              }}
+            />
+            <p className="field-help">Used for the icon tile, stripe and group wash.</p>
+          </label>
+        </section>
+      ) : null}
 
-      <section className="side-section">
-        <h3 className="side-section-label">Look</h3>
-        <label className="field">
-          <span>Icon</span>
-          <IconPicker
-            value={node.icon}
-            onChange={(name) => setField('icon', name)}
-          />
-        </label>
-        <label className="field">
-          <span>Colour</span>
-          <ColourPicker
-            value={node.color}
-            onChange={(color) => {
-              if (node.kind === 'group') {
-                replaceNode({
-                  ...node,
-                  color,
-                  data: { ...node.data, color },
-                })
-              } else {
-                setField('color', color)
-              }
-            }}
-          />
-        </label>
-      </section>
-
-      <KindDetails node={node} replaceNode={replaceNode} />
-
-      <section className="side-section">
-        <button
-          type="button"
-          className="btn btn-ghost btn-danger-icon"
-          onClick={() => removeNodes([node.id])}
-        >
-          <Trash2 size={16} />
-          Delete {node.kind === 'group' ? 'group' : 'node'}
-        </button>
-      </section>
+      {tab === 'notes' ? (
+        <section className="side-section">
+          <h3 className="side-section-label">Notes</h3>
+          <label className="field">
+            <span>Description</span>
+            <textarea
+              className="field-textarea"
+              rows={4}
+              value={node.description ?? ''}
+              onChange={(e) => setField('description', e.target.value || undefined)}
+            />
+            <p className="field-help">Shown under the title on the canvas, two lines max.</p>
+          </label>
+          {node.kind === 'step' ? (
+            <label className="field">
+              <span>Step notes</span>
+              <textarea
+                className="field-textarea"
+                rows={3}
+                value={node.data?.notes ?? ''}
+                onChange={(e) =>
+                  replaceNode({
+                    ...node,
+                    data: { ...node.data, notes: e.target.value || undefined },
+                  })
+                }
+              />
+              <p className="field-help">Internal detail for this process step.</p>
+            </label>
+          ) : null}
+          {node.kind === 'note' ? (
+            <label className="field">
+              <span>Note text</span>
+              <textarea
+                className="field-textarea"
+                rows={5}
+                value={node.data.text}
+                onChange={(e) => replaceNode({ ...node, data: { text: e.target.value } })}
+              />
+            </label>
+          ) : null}
+        </section>
+      ) : null}
     </aside>
   )
 }
@@ -164,20 +253,7 @@ function KindDetails({
                 })
               }
             />
-          </label>
-          <label className="field">
-            <span>Notes</span>
-            <textarea
-              className="field-textarea"
-              rows={3}
-              value={node.data?.notes ?? ''}
-              onChange={(e) =>
-                replaceNode({
-                  ...node,
-                  data: { ...node.data, notes: e.target.value || undefined },
-                })
-              }
-            />
+            <p className="field-help">Who owns this step in the process.</p>
           </label>
         </section>
       )
@@ -185,6 +261,7 @@ function KindDetails({
       return (
         <section className="side-section">
           <h3 className="side-section-label">Branches</h3>
+          <p className="field-help">Each branch becomes an output handle on the node.</p>
           <div className="side-list">
             {node.data.branches.map((branch, index) => (
               <div key={branch.id} className="side-list-row">
@@ -233,6 +310,7 @@ function KindDetails({
       return (
         <section className="side-section">
           <h3 className="side-section-label">Mappings</h3>
+          <p className="field-help">Map a source field to a destination field.</p>
           <div className="side-list">
             {node.data.mappings.map((row, index) => (
               <div key={index} className="side-list-row stacked">
@@ -297,6 +375,7 @@ function KindDetails({
                 replaceNode({ ...node, data: { ...node.data, service: e.target.value } })
               }
             />
+            <p className="field-help">Name of the system you call.</p>
           </label>
           <label className="field">
             <span>Method</span>
@@ -309,6 +388,7 @@ function KindDetails({
                 })
               }
             />
+            <p className="field-help">HTTP method such as GET or POST.</p>
           </label>
           <label className="field">
             <span>Endpoint</span>
@@ -321,6 +401,7 @@ function KindDetails({
                 })
               }
             />
+            <p className="field-help">Path or URL for the call.</p>
           </label>
         </section>
       )
@@ -343,6 +424,7 @@ function KindDetails({
                 })
               }
             />
+            <p className="field-help">Optional score cut-off for this rule set.</p>
           </label>
           <div className="side-list">
             {node.data.rules.map((row, index) => (
@@ -399,23 +481,8 @@ function KindDetails({
           </button>
         </section>
       )
-    case 'note':
-      return (
-        <section className="side-section">
-          <h3 className="side-section-label">Details</h3>
-          <label className="field">
-            <span>Text</span>
-            <textarea
-              className="field-textarea"
-              rows={4}
-              value={node.data.text}
-              onChange={(e) => replaceNode({ ...node, data: { text: e.target.value } })}
-            />
-          </label>
-        </section>
-      )
     case 'group': {
-      const color = resolveColor(node.data.color ?? node.color, 'gray')
+      const groupColor = resolveColor(node.data.color ?? node.color, 'gray')
       const collapsed = node.data.collapsed === true
       return (
         <section className="side-section">
@@ -446,8 +513,8 @@ function KindDetails({
             />
             <span>Collapsed</span>
           </label>
-          <p className="side-hint" style={{ color: color.solid }}>
-            Drag nodes onto this group to nest them, or pick a parent group in the panel.
+          <p className="side-hint" style={{ color: groupColor.solid }}>
+            Drag nodes onto this group to nest them, or pick a parent group in Settings.
           </p>
         </section>
       )

@@ -1,10 +1,12 @@
-import { ReactFlowProvider, useReactFlow } from '@xyflow/react'
+import { ReactFlowProvider, useReactFlow, useViewport } from '@xyflow/react'
 import {
   ArrowLeft,
   Download,
   FileQuestion,
+  Grid3x3,
   Keyboard,
   LayoutTemplate,
+  Maximize2,
   Moon,
   Redo2,
   Save,
@@ -14,6 +16,8 @@ import {
   Undo2,
   Upload,
   Workflow,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
@@ -21,6 +25,11 @@ import { AssistantPanel } from '../ai/AssistantPanel'
 import { useAuth } from '../auth/useAuth'
 import { EmptyState } from '../components/EmptyState'
 import { getDiagram, saveDiagram } from '../data/diagrams'
+import {
+  cycleGridMode,
+  gridModeLabel,
+  type GridMode,
+} from '../editor/alignment'
 import { Canvas } from '../editor/Canvas'
 import {
   DIAGRAM_SIZE_WARN_BYTES,
@@ -65,7 +74,8 @@ function EditorInner() {
   const { diagramId } = useParams<{ diagramId: string }>()
   const { user } = useAuth()
   const { theme, toggleTheme } = useTheme()
-  const { fitView } = useReactFlow()
+  const { fitView, zoomIn, zoomOut } = useReactFlow()
+  const { zoom } = useViewport()
 
   const diagram = useEditorStore((s) => s.diagram)
   const saveStatus = useEditorStore((s) => s.saveStatus)
@@ -99,6 +109,7 @@ function EditorInner() {
   const [assistantOpen, setAssistantOpen] = useState(false)
   const [nodeSearchOpen, setNodeSearchOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  const [gridMode, setGridMode] = useState<GridMode>('dots')
   const savingRef = useRef(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const ioMenuRef = useRef<HTMLDivElement>(null)
@@ -414,138 +425,188 @@ function EditorInner() {
         </div>
 
         <div className="editor-topbar-right">
-          <button
-            type="button"
-            className="btn btn-ghost btn-icon"
-            aria-label="Search nodes"
-            title="Search nodes (Ctrl/Cmd+K)"
-            onClick={() => setNodeSearchOpen(true)}
-          >
-            <Search size={18} />
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost btn-icon"
-            aria-label="Keyboard shortcuts"
-            title="Keyboard shortcuts (Ctrl/Cmd+/)"
-            onClick={() => setShortcutsOpen(true)}
-          >
-            <Keyboard size={18} />
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost btn-icon"
-            aria-label="Undo"
-            title="Undo"
-            disabled={past.length === 0}
-            onClick={() => undo()}
-          >
-            <Undo2 size={18} />
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost btn-icon"
-            aria-label="Redo"
-            title="Redo"
-            disabled={future.length === 0}
-            onClick={() => redo()}
-          >
-            <Redo2 size={18} />
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost"
-            aria-label="Auto layout"
-            title="Auto layout"
-            disabled={layoutBusy || diagram.nodes.length === 0}
-            onClick={() => void runLayout('DOWN')}
-          >
-            <LayoutTemplate size={16} aria-hidden />
-            {layoutBusy ? 'Layout...' : 'Layout'}
-          </button>
-          <div className="io-menu" ref={ioMenuRef}>
+          <div className="editor-toolbar-group">
+            <button
+              type="button"
+              className="btn btn-ghost btn-icon"
+              aria-label="Undo"
+              title="Undo"
+              disabled={past.length === 0}
+              onClick={() => undo()}
+            >
+              <Undo2 size={16} />
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-icon"
+              aria-label="Redo"
+              title="Redo"
+              disabled={future.length === 0}
+              onClick={() => redo()}
+            >
+              <Redo2 size={16} />
+            </button>
+          </div>
+          <span className="editor-toolbar-divider" aria-hidden />
+          <div className="editor-toolbar-group">
+            <button
+              type="button"
+              className="btn btn-ghost btn-icon"
+              aria-label="Zoom out"
+              title="Zoom out"
+              onClick={() => zoomOut({ duration: 120 })}
+            >
+              <ZoomOut size={16} />
+            </button>
+            <span className="editor-zoom-label" aria-live="polite">
+              {Math.round(zoom * 100)}%
+            </span>
+            <button
+              type="button"
+              className="btn btn-ghost btn-icon"
+              aria-label="Zoom in"
+              title="Zoom in"
+              onClick={() => zoomIn({ duration: 120 })}
+            >
+              <ZoomIn size={16} />
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-icon"
+              aria-label="Fit view"
+              title="Fit view"
+              onClick={() => fitView({ padding: 0.2, duration: 200 })}
+            >
+              <Maximize2 size={16} />
+            </button>
+          </div>
+          <span className="editor-toolbar-divider" aria-hidden />
+          <div className="editor-toolbar-group">
+            <button
+              type="button"
+              className="btn btn-ghost btn-icon"
+              aria-label="Auto layout"
+              title="Auto layout"
+              disabled={layoutBusy || diagram.nodes.length === 0}
+              onClick={() => void runLayout('DOWN')}
+            >
+              <LayoutTemplate size={16} />
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-icon"
+              aria-label={`Grid: ${gridModeLabel(gridMode)}. Click to change.`}
+              title={`Grid: ${gridModeLabel(gridMode)}`}
+              onClick={() => setGridMode((m) => cycleGridMode(m))}
+            >
+              <Grid3x3 size={16} />
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-icon"
+              aria-label="Search nodes"
+              title="Search nodes (Ctrl/Cmd+K)"
+              onClick={() => setNodeSearchOpen(true)}
+            >
+              <Search size={16} />
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-icon"
+              aria-label="Keyboard shortcuts"
+              title="Keyboard shortcuts (Ctrl/Cmd+/)"
+              onClick={() => setShortcutsOpen(true)}
+            >
+              <Keyboard size={16} />
+            </button>
+          </div>
+          <span className="editor-toolbar-divider" aria-hidden />
+          <div className="editor-toolbar-group">
+            <div className="io-menu" ref={ioMenuRef}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                aria-expanded={ioMenuOpen}
+                aria-haspopup="menu"
+                onClick={() => setIoMenuOpen((v) => !v)}
+              >
+                Import / Export
+              </button>
+              {ioMenuOpen ? (
+                <div className="io-menu-popover" role="menu">
+                  <button
+                    type="button"
+                    className="io-menu-item"
+                    role="menuitem"
+                    onClick={() => {
+                      setIoMenuOpen(false)
+                      fileInputRef.current?.click()
+                    }}
+                  >
+                    <Upload size={16} aria-hidden />
+                    Import JSON
+                  </button>
+                  <button
+                    type="button"
+                    className="io-menu-item"
+                    role="menuitem"
+                    onClick={onExport}
+                  >
+                    <Download size={16} aria-hidden />
+                    Export JSON
+                  </button>
+                </div>
+              ) : null}
+            </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/json,.json"
+              className="sr-only"
+              aria-label="Import diagram JSON"
+              onChange={(e) => {
+                const file = e.target.files?.[0]
+                e.target.value = ''
+                if (file) void onImportFile(file)
+              }}
+            />
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => void persist()}
+              disabled={saveStatus === 'saving' || saveStatus === 'saved' || saveStatus === 'idle'}
+            >
+              <Save size={16} aria-hidden />
+              Save
+            </button>
             <button
               type="button"
               className="btn btn-ghost"
-              aria-expanded={ioMenuOpen}
-              aria-haspopup="menu"
-              onClick={() => setIoMenuOpen((v) => !v)}
+              aria-pressed={assistantOpen}
+              onClick={() => setAssistantOpen((v) => !v)}
             >
-              Import / Export
+              <Sparkles size={16} aria-hidden />
+              AI
             </button>
-            {ioMenuOpen ? (
-              <div className="io-menu-popover" role="menu">
-                <button
-                  type="button"
-                  className="io-menu-item"
-                  role="menuitem"
-                  onClick={() => {
-                    setIoMenuOpen(false)
-                    fileInputRef.current?.click()
-                  }}
-                >
-                  <Upload size={16} aria-hidden />
-                  Import JSON
-                </button>
-                <button
-                  type="button"
-                  className="io-menu-item"
-                  role="menuitem"
-                  onClick={onExport}
-                >
-                  <Download size={16} aria-hidden />
-                  Export JSON
-                </button>
-              </div>
-            ) : null}
+            <button
+              type="button"
+              className="btn btn-ghost btn-icon"
+              onClick={toggleTheme}
+              aria-label={theme === 'light' ? 'Switch to dark theme' : 'Switch to light theme'}
+            >
+              {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
+            </button>
+            <Link to="/settings" className="btn btn-ghost">
+              Settings
+            </Link>
           </div>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="application/json,.json"
-            className="sr-only"
-            aria-label="Import diagram JSON"
-            onChange={(e) => {
-              const file = e.target.files?.[0]
-              e.target.value = ''
-              if (file) void onImportFile(file)
-            }}
-          />
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={() => void persist()}
-            disabled={saveStatus === 'saving' || saveStatus === 'saved' || saveStatus === 'idle'}
-          >
-            <Save size={16} aria-hidden />
-            Save
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost"
-            aria-pressed={assistantOpen}
-            onClick={() => setAssistantOpen((v) => !v)}
-          >
-            <Sparkles size={16} aria-hidden />
-            AI
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost btn-icon"
-            onClick={toggleTheme}
-            aria-label={theme === 'light' ? 'Switch to dark theme' : 'Switch to light theme'}
-          >
-            {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
-          </button>
-          <Link to="/settings" className="btn btn-ghost">
-            Settings
-          </Link>
         </div>
       </header>
 
       <div className={`editor-body ${assistantOpen ? 'has-ai-panel' : ''}`}>
         <NodePalette onAdd={onAddKind} />
         <Canvas
+          gridMode={gridMode}
           onDropKind={onDropKind}
           emptyAction={
             <button
