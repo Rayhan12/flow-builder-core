@@ -36,7 +36,7 @@ export function LoginPage() {
   return (
     <AuthLayout
       title="Sign in"
-      subtitle="Open your diagrams and keep building."
+      subtitle="Open your projects and keep building."
     >
       <form className="auth-form" onSubmit={(e) => void onSubmit(e)} noValidate>
         {error ? (

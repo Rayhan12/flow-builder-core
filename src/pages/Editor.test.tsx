@@ -2,10 +2,10 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { AuthContext, type AuthContextValue } from '../auth/authContext'
 import { createEmptyDiagramDoc } from '../schema'
 import { useEditorStore } from '../store/editorStore'
 import { ThemeProvider } from '../theme/ThemeProvider'
+import { makeAppData, TestProviders } from '../test/appData'
 import { EditorPage } from './Editor'
 
 const getDiagram = vi.fn()
@@ -16,24 +16,30 @@ vi.mock('../data/diagrams', () => ({
   saveDiagram: (...args: unknown[]) => saveDiagram(...args),
 }))
 
-const authValue: AuthContextValue = {
-  user: { uid: 'u1', email: 'a@b.com' } as AuthContextValue['user'],
-  loading: false,
-  signIn: vi.fn(),
-  signUp: vi.fn(),
-  signOut: vi.fn(),
-}
-
 function renderEditor() {
   return render(
     <ThemeProvider>
-      <AuthContext.Provider value={authValue}>
+      <TestProviders
+        appData={makeAppData({
+          projects: [
+            {
+              id: 'p1',
+              name: 'My first project',
+              color: 'blue',
+              icon: 'folder',
+              diagramCount: 1,
+              createdAt: null,
+              updatedAt: null,
+            },
+          ],
+        })}
+      >
         <MemoryRouter initialEntries={['/p/p1/d/d1']}>
           <Routes>
             <Route path="/p/:projectId/d/:diagramId" element={<EditorPage />} />
           </Routes>
         </MemoryRouter>
-      </AuthContext.Provider>
+      </TestProviders>
     </ThemeProvider>,
   )
 }

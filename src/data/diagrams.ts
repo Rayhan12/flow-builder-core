@@ -402,8 +402,14 @@ export async function saveDiagram(
 // --- Legacy path (migration) ---
 
 export async function listLegacyDiagrams(uid: string): Promise<DiagramListItem[]> {
-  const snap = await getDocs(query(legacyDiagramsCol(uid), orderBy('updatedAt', 'desc')))
-  return snap.docs.map((d) => toListItem(d.id, d.data() as Record<string, unknown>))
+  // No orderBy: legacy docs may lack updatedAt, and migration must still see them.
+  const snap = await getDocs(legacyDiagramsCol(uid))
+  const items = snap.docs.map((d) => toListItem(d.id, d.data() as Record<string, unknown>))
+  return items.sort((a, b) => {
+    const at = a.updatedAt?.getTime() ?? a.createdAt?.getTime() ?? 0
+    const bt = b.updatedAt?.getTime() ?? b.createdAt?.getTime() ?? 0
+    return bt - at
+  })
 }
 
 export async function getLegacyDiagram(
@@ -434,7 +440,13 @@ export async function copyLegacyDiagramToProject(
   const targetSnap = await getDoc(targetRef)
   if (targetSnap.exists()) return true
 
-  await setDoc(targetRef, legacySnap.data())
+  const legacyData = legacySnap.data() as Record<string, unknown>
+  // Ensure sortable timestamps so project list queries (orderBy updatedAt) see the doc.
+  await setDoc(targetRef, {
+    ...legacyData,
+    createdAt: legacyData.createdAt ?? serverTimestamp(),
+    updatedAt: legacyData.updatedAt ?? serverTimestamp(),
+  })
 
   for (const col of [legacyMessagesCol(uid, diagramId), legacyVersionsCol(uid, diagramId)]) {
     const snap = await getDocs(col)

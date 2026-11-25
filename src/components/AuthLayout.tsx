@@ -14,6 +14,7 @@ export function AuthLayout({ title, subtitle, children }: AuthLayoutProps) {
 
   return (
     <div className="auth-page">
+      <div className="auth-page-glow" aria-hidden />
       <button
         type="button"
         className="btn btn-ghost btn-icon theme-float"
@@ -25,9 +26,12 @@ export function AuthLayout({ title, subtitle, children }: AuthLayoutProps) {
 
       <div className="auth-card">
         <Link to="/login" className="brand brand-auth">
-          <Workflow className="brand-icon" aria-hidden size={28} strokeWidth={2} />
+          <span className="brand-tile" aria-hidden>
+            <Workflow size={18} strokeWidth={2} />
+          </span>
           <span className="brand-name">Flow Builder</span>
         </Link>
+        <p className="section-eyebrow">Welcome</p>
         <h1>{title}</h1>
         <p className="auth-subtitle">{subtitle}</p>
         {children}

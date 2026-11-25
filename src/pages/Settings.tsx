@@ -101,11 +101,12 @@ export function SettingsPage() {
     <div className="settings-page">
       <div className="page-heading-row">
         <div>
+          <p className="section-eyebrow">Account</p>
           <h1>Settings</h1>
           <p className="page-subtitle">AI provider and your personal API key.</p>
         </div>
         <Link to="/" className="btn btn-secondary">
-          Back to diagrams
+          Back to home
         </Link>
       </div>
 
@@ -121,6 +122,7 @@ export function SettingsPage() {
       ) : null}
 
       <section className="settings-card">
+        <p className="section-eyebrow">Keys</p>
         <h2>Gemini API key</h2>
         <p className="settings-note">
           Your key stays in this browser. It is sent only to the AI provider you pick.
@@ -167,6 +169,7 @@ export function SettingsPage() {
       </section>
 
       <section className="settings-card">
+        <p className="section-eyebrow">Provider</p>
         <h2>Model</h2>
         <form className="settings-form" onSubmit={(e) => void onSaveProvider(e)}>
           <label className="field">

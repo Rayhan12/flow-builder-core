@@ -21,7 +21,9 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { AssistantPanel } from '../ai/AssistantPanel'
+import { useAppData } from '../app/useAppData'
 import { useAuth } from '../auth/useAuth'
+import { Breadcrumbs } from '../components/Breadcrumbs'
 import { EmptyState } from '../components/EmptyState'
 import { getDiagram, saveDiagram } from '../data/diagrams'
 import {
@@ -75,9 +77,11 @@ function EditorInner() {
     diagramId?: string
   }>()
   const { user } = useAuth()
+  const { projects } = useAppData()
   const { theme, toggleTheme } = useTheme()
   const { fitView, zoomIn, zoomOut } = useReactFlow()
   const { zoom } = useViewport()
+  const projectName = projects.find((p) => p.id === projectId)?.name ?? 'Project'
 
   const diagram = useEditorStore((s) => s.diagram)
   const saveStatus = useEditorStore((s) => s.saveStatus)
@@ -392,6 +396,16 @@ function EditorInner() {
           >
             <ArrowLeft size={18} />
           </Link>
+          <Breadcrumbs
+            items={[
+              { label: 'Home', to: '/' },
+              {
+                label: projectName,
+                to: projectId ? `/p/${projectId}` : undefined,
+              },
+              { label: diagram.title },
+            ]}
+          />
           {editingTitle ? (
             <input
               className="editor-title-input"

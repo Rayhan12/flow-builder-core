@@ -235,11 +235,26 @@ input {
 /* Auth */
 
 .auth-page {
+  position: relative;
+  isolation: isolate;
   min-height: 100svh;
   display: grid;
   place-items: center;
   padding: 24px;
-  background: var(--color-surface-2);
+  background:
+    radial-gradient(1200px 600px at 10% -10%, var(--color-accent-tint), transparent 55%),
+    radial-gradient(900px 500px at 100% 0%, color-mix(in srgb, var(--color-accent-subtle) 70%, transparent), transparent 50%),
+    var(--color-surface-2);
+}
+
+.auth-page-glow {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle at 1px 1px, var(--color-border) 1px, transparent 0);
+  background-size: 16px 16px;
+  opacity: 0.35;
+  pointer-events: none;
+  z-index: -1;
 }
 
 .theme-float {
@@ -249,32 +264,61 @@ input {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   box-shadow: var(--shadow-float);
+  z-index: 2;
 }
 
 .auth-card {
-  width: min(400px, 100%);
+  width: min(420px, 100%);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  padding: 32px 24px 24px;
+  padding: 32px 28px 28px;
+  box-shadow: var(--shadow-float);
 }
 
 .brand-auth {
-  margin-bottom: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 28px;
   font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.brand-tile {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 18%, var(--color-border));
+}
+
+.section-eyebrow {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-3);
 }
 
 .auth-card h1 {
   font-size: var(--text-2xl);
   line-height: 1.21;
   letter-spacing: -0.02em;
-  margin-bottom: 8px;
+  margin: 0 0 8px;
+  color: var(--color-text);
 }
 
 .auth-subtitle {
   color: var(--color-text-2);
   font-size: var(--text-body);
-  margin-bottom: 24px;
+  margin: 0 0 24px;
 }
 
 .auth-form {
@@ -308,9 +352,10 @@ input {
 }
 
 .field input:focus,
-.field select:focus {
+.field select:focus,
+.field textarea:focus {
   border-color: var(--color-accent);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 30%, transparent);
+  box-shadow: 0 0 0 2px var(--color-focus-ring);
 }
 
 .sr-only {
@@ -379,10 +424,10 @@ input {
 }
 
 .empty-state {
-  border: 1px solid var(--color-border);
+  border: 1px dashed var(--color-border);
   border-radius: var(--radius-md);
-  background: var(--color-surface);
-  padding: 48px 24px;
+  background: color-mix(in srgb, var(--color-surface) 75%, var(--color-surface-2));
+  padding: 56px 24px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -392,7 +437,7 @@ input {
 
 .empty-state-icon {
   color: var(--color-icon);
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
 .empty-state h2 {
@@ -402,8 +447,8 @@ input {
 }
 
 .empty-state p {
-  color: var(--color-text-2);
-  font-size: var(--text-body);
+  color: var(--color-text-3);
+  font-size: var(--text-sm);
   max-width: 36ch;
 }
 
@@ -519,13 +564,14 @@ input {
 .dialog h2 {
   font-size: var(--text-md);
   font-weight: 600;
-  margin-bottom: 16px;
+  color: var(--color-text);
+  margin: 0 0 8px;
 }
 
 .dialog-body {
   color: var(--color-text-2);
   font-size: var(--text-body);
-  margin-bottom: 24px;
+  margin: 0 0 24px;
 }
 
 .dialog-actions {
@@ -533,6 +579,22 @@ input {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 8px;
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 60;
+  max-width: min(420px, calc(100% - 32px));
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  background: var(--color-chrome-dark);
+  color: #fff;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  box-shadow: var(--shadow-float);
 }
 
 @media (max-width: 640px) {
@@ -1784,35 +1846,38 @@ input {
 /* Settings */
 
 .settings-page {
-  max-width: 640px;
+  max-width: 720px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 20px;
 }
 
 .settings-page h1 {
   font-size: var(--text-xl);
   line-height: 1.33;
   letter-spacing: -0.02em;
-  margin-bottom: 8px;
+  margin: 0 0 8px;
+  color: var(--color-text);
 }
 
 .page-subtitle {
   color: var(--color-text-2);
   font-size: var(--text-body);
+  margin: 0;
 }
 
 .settings-card {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  padding: 24px;
+  padding: 20px 24px 24px;
 }
 
 .settings-card h2 {
   font-size: var(--text-md);
   font-weight: 600;
-  margin-bottom: 8px;
+  color: var(--color-text);
+  margin: 0 0 8px;
 }
 
 .settings-note {
