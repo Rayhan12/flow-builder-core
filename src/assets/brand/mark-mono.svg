@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none" role="img" aria-label="Flow Builder">
+  <rect x="3" y="3" width="10" height="10" rx="2.5" fill="currentColor"/>
+  <rect x="19" y="3" width="10" height="10" rx="2.5" fill="currentColor"/>
+  <rect x="3" y="19" width="10" height="10" rx="2.5" fill="currentColor"/>
+  <path d="M13 8h6M8 13v6" stroke="currentColor" stroke-width="2.5" stroke-linecap="square"/>
+</svg>
