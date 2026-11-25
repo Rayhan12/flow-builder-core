@@ -6,6 +6,7 @@ import {
   Moon,
   Redo2,
   Save,
+  Sparkles,
   Sun,
   Undo2,
   Upload,
@@ -13,6 +14,7 @@ import {
 } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { AssistantPanel } from '../ai/AssistantPanel'
 import { useAuth } from '../auth/useAuth'
 import { getDiagram, saveDiagram } from '../data/diagrams'
 import { Canvas } from '../editor/Canvas'
@@ -79,6 +81,7 @@ function EditorInner() {
   const [layoutBusy, setLayoutBusy] = useState(false)
   const [ioMenuOpen, setIoMenuOpen] = useState(false)
   const [ioError, setIoError] = useState<string | null>(null)
+  const [assistantOpen, setAssistantOpen] = useState(false)
   const savingRef = useRef(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const ioMenuRef = useRef<HTMLDivElement>(null)
@@ -399,19 +402,39 @@ function EditorInner() {
           </button>
           <button
             type="button"
+            className="btn btn-ghost"
+            aria-pressed={assistantOpen}
+            onClick={() => setAssistantOpen((v) => !v)}
+          >
+            <Sparkles size={16} aria-hidden />
+            AI
+          </button>
+          <button
+            type="button"
             className="btn btn-ghost btn-icon"
             onClick={toggleTheme}
             aria-label={theme === 'light' ? 'Switch to dark theme' : 'Switch to light theme'}
           >
             {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
           </button>
+          <Link to="/settings" className="btn btn-ghost">
+            Settings
+          </Link>
         </div>
       </header>
 
-      <div className="editor-body">
+      <div className={`editor-body ${assistantOpen ? 'has-ai-panel' : ''}`}>
         <NodePalette onAdd={onAddKind} />
         <Canvas onDropKind={onDropKind} />
-        <NodeSidePanel />
+        {assistantOpen && diagramId ? (
+          <AssistantPanel
+            open={assistantOpen}
+            onClose={() => setAssistantOpen(false)}
+            diagramId={diagramId}
+          />
+        ) : (
+          <NodeSidePanel />
+        )}
       </div>
     </div>
   )
