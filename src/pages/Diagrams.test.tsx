@@ -47,19 +47,7 @@ describe('DiagramsPage', () => {
   })
 
   it('shows empty state and creates a diagram', async () => {
-    listDiagrams
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        {
-          id: 'd1',
-          title: 'Untitled diagram',
-          nodeCount: 0,
-          schemaVersion: 1,
-          revision: 0,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-      ])
+    listDiagrams.mockResolvedValueOnce([])
     createDiagram.mockResolvedValue({
       id: 'd1',
       title: 'Untitled diagram',
@@ -74,7 +62,6 @@ describe('DiagramsPage', () => {
     await waitFor(() => {
       expect(createDiagram).toHaveBeenCalledWith('u1', 'Untitled diagram')
     })
-    expect(await screen.findByText('Untitled diagram')).toBeInTheDocument()
   })
 
   it('lists diagrams and can open rename dialog', async () => {

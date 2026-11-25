@@ -1,5 +1,6 @@
 import { Copy, FilePlus2, Pencil, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 import {
   createDiagram,
@@ -20,6 +21,7 @@ function formatUpdatedAt(value: Date | null): string {
 
 export function DiagramsPage() {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const uid = user?.uid
 
   const [items, setItems] = useState<DiagramListItem[]>([])
@@ -65,11 +67,10 @@ export function DiagramsPage() {
     setBusy(true)
     setError(null)
     try {
-      await createDiagram(uid, 'Untitled diagram')
-      await refresh()
+      const created = await createDiagram(uid, 'Untitled diagram')
+      navigate(`/diagrams/${created.id}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not create diagram')
-    } finally {
       setBusy(false)
     }
   }
@@ -165,14 +166,14 @@ export function DiagramsPage() {
         <ul className="diagram-list">
           {items.map((item) => (
             <li key={item.id} className="diagram-row">
-              <div className="diagram-row-main">
+              <Link to={`/diagrams/${item.id}`} className="diagram-row-main">
                 <h2 className="diagram-title">{item.title}</h2>
                 <p className="diagram-meta">
                   {item.nodeCount} {item.nodeCount === 1 ? 'node' : 'nodes'}
                   {' · '}
                   Updated {formatUpdatedAt(item.updatedAt)}
                 </p>
-              </div>
+              </Link>
               <div className="diagram-row-actions">
                 <button
                   type="button"

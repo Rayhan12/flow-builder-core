@@ -4,6 +4,7 @@ import { AppShell } from './components/AppShell'
 import { GuestRoute } from './components/GuestRoute'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { DiagramsPage } from './pages/Diagrams'
+import { EditorPage } from './pages/Editor'
 import { LoginPage } from './pages/Login'
 import { SignupPage } from './pages/Signup'
 import { ThemeProvider } from './theme/ThemeProvider'
@@ -39,6 +40,14 @@ export default function App() {
             >
               <Route index element={<DiagramsPage />} />
             </Route>
+            <Route
+              path="/diagrams/:diagramId"
+              element={
+                <ProtectedRoute>
+                  <EditorPage />
+                </ProtectedRoute>
+              }
+            />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>
