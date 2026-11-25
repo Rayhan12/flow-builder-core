@@ -335,7 +335,7 @@ input {
   font-size: var(--text-body);
 }
 
-/* Diagrams placeholder */
+/* Diagrams list */
 
 .diagrams-page {
   display: flex;
@@ -353,6 +353,18 @@ input {
 .page-heading p {
   color: var(--color-text-2);
   max-width: 52ch;
+  font-size: var(--text-body);
+}
+
+.page-heading-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.page-status {
+  color: var(--color-text-3);
   font-size: var(--text-body);
 }
 
@@ -385,6 +397,116 @@ input {
   max-width: 36ch;
 }
 
+.empty-state .btn {
+  margin-top: 12px;
+}
+
+.diagram-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+.diagram-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.diagram-row:last-child {
+  border-bottom: none;
+}
+
+.diagram-row:hover {
+  background: var(--color-accent-soft);
+}
+
+.diagram-title {
+  font-size: var(--text-body);
+  font-weight: 500;
+  color: var(--color-text);
+  margin-bottom: 4px;
+}
+
+.diagram-meta {
+  font-size: var(--text-caption);
+  line-height: 1.4;
+  color: var(--color-text-3);
+}
+
+.diagram-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.btn-danger-icon {
+  color: var(--color-text-2);
+}
+
+.btn-danger-icon:hover:not(:disabled) {
+  color: var(--color-danger);
+  background: var(--color-danger-bg);
+}
+
+.btn-danger {
+  background: var(--color-danger);
+  color: #fff;
+  border-color: transparent;
+}
+
+.btn-danger:hover:not(:disabled) {
+  filter: brightness(0.96);
+}
+
+/* Dialogs */
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(16, 24, 40, 0.4);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  z-index: 40;
+}
+
+.dialog {
+  width: min(480px, 100%);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-float);
+  padding: 24px;
+}
+
+.dialog h2 {
+  font-size: var(--text-md);
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+
+.dialog-body {
+  color: var(--color-text-2);
+  font-size: var(--text-body);
+  margin-bottom: 24px;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
 @media (max-width: 640px) {
   .user-email {
     display: none;
@@ -400,6 +522,19 @@ input {
 
   .auth-card h1 {
     font-size: var(--text-xl);
+  }
+
+  .page-heading-row {
+    flex-direction: column;
+  }
+
+  .diagram-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .diagram-row-actions {
+    align-self: flex-end;
   }
 }
 
