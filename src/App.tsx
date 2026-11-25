@@ -6,6 +6,7 @@ import { ProtectedRoute } from './components/ProtectedRoute'
 import { DiagramsPage } from './pages/Diagrams'
 import { EditorPage } from './pages/Editor'
 import { LoginPage } from './pages/Login'
+import { SettingsPage } from './pages/Settings'
 import { SignupPage } from './pages/Signup'
 import { ThemeProvider } from './theme/ThemeProvider'
 
@@ -39,6 +40,7 @@ export default function App() {
               }
             >
               <Route index element={<DiagramsPage />} />
+              <Route path="settings" element={<SettingsPage />} />
             </Route>
             <Route
               path="/diagrams/:diagramId"

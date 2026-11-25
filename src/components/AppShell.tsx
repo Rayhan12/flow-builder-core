@@ -21,6 +21,9 @@ export function AppShell() {
               {user.email}
             </span>
           ) : null}
+          <Link to="/settings" className="btn btn-ghost">
+            Settings
+          </Link>
           <button
             type="button"
             className="btn btn-ghost btn-icon"
