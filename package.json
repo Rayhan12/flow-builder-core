@@ -10,8 +10,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:emulators": "firebase emulators:exec --only auth,firestore --project flow-builder-core \"vitest run\"",
-    "test:e2e": "firebase emulators:exec --only auth,firestore --project flow-builder-core \"playwright test\"",
+    "test:emulators": "firebase emulators:exec --only auth,firestore --project flow-builder-core \"npx vitest run\"",
+    "test:e2e": "firebase emulators:exec --only auth,firestore --project flow-builder-core \"npx playwright test\"",
     "emulators": "firebase emulators:start --only auth,firestore --project flow-builder-core",
     "deploy": "npm run build && firebase deploy --only hosting,firestore"
   },
