@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { Sparkles, X } from 'lucide-react'
 import { useAuth } from '../auth/useAuth'
@@ -66,21 +66,17 @@ export function AssistantPanel({
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
   const [model, setModel] = useState('gemini-2.5-flash')
-  const [keyPresent, setKeyPresent] = useState(false)
+  const [keyEpoch, setKeyEpoch] = useState(0)
   const [keyDraft, setKeyDraft] = useState('')
   const [keyError, setKeyError] = useState<string | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const lastAppliedRef = useRef<string | null>(null)
 
-  const refreshKey = useCallback(() => {
-    if (!uid) return
-    setKeyPresent(hasApiKey(uid))
-  }, [uid])
+  const keyPresent = Boolean(uid && hasApiKey(uid) && keyEpoch >= 0)
 
   useEffect(() => {
     if (!open || !uid) return
-    refreshKey()
     let cancelled = false
     void (async () => {
       try {
@@ -99,7 +95,7 @@ export function AssistantPanel({
     return () => {
       cancelled = true
     }
-  }, [open, uid, diagramId, refreshKey])
+  }, [open, uid, diagramId])
 
   useEffect(() => {
     if (!open) return
@@ -114,7 +110,7 @@ export function AssistantPanel({
     try {
       setApiKey(uid, keyDraft)
       setKeyDraft('')
-      setKeyPresent(true)
+      setKeyEpoch((n) => n + 1)
     } catch (err) {
       setKeyError(err instanceof Error ? err.message : 'Could not save key')
     }
@@ -125,14 +121,9 @@ export function AssistantPanel({
     const trimmed = text.trim()
     if (!trimmed) return
 
-    if (!hasApiKey(uid)) {
-      setKeyPresent(false)
-      return
-    }
-
     const apiKey = getApiKey(uid)
     if (!apiKey) {
-      setKeyPresent(false)
+      setKeyEpoch((n) => n + 1)
       return
     }
 
@@ -469,7 +460,7 @@ export function AssistantPanel({
               onClick={() => {
                 if (!uid) return
                 forgetApiKey(uid)
-                setKeyPresent(false)
+                setKeyEpoch((n) => n + 1)
               }}
             >
               Forget key
