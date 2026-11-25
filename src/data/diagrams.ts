@@ -58,6 +58,22 @@ function newDiagramId(): string {
   return `d_${raw.slice(0, 16)}`
 }
 
+/** Firestore rejects `undefined` field values; strip them before writes. */
+function stripUndefined<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => stripUndefined(item)) as T
+  }
+  if (value && typeof value === 'object' && !(value instanceof Date)) {
+    const out: Record<string, unknown> = {}
+    for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+      if (nested === undefined) continue
+      out[key] = stripUndefined(nested)
+    }
+    return out as T
+  }
+  return value
+}
+
 function asDate(value: unknown): Date | null {
   if (!value) return null
   if (value instanceof Date) return value
@@ -214,16 +230,18 @@ export async function saveDiagram(
   if (existing.revision !== expectedRevision) {
     throw new Error('Diagram was updated elsewhere. Reload and try again.')
   }
-  const nextDoc = migrateDiagramDoc({
-    schemaVersion: diagram.schemaVersion,
-    title: diagram.title,
-    description: diagram.description,
-    nodes: diagram.nodes,
-    edges: diagram.edges,
-    groups: diagram.groups,
-    viewport: diagram.viewport,
-    theme: diagram.theme,
-  })
+  const nextDoc = stripUndefined(
+    migrateDiagramDoc({
+      schemaVersion: diagram.schemaVersion,
+      title: diagram.title,
+      description: diagram.description,
+      nodes: diagram.nodes,
+      edges: diagram.edges,
+      groups: diagram.groups,
+      viewport: diagram.viewport,
+      theme: diagram.theme,
+    }),
+  )
   const nextRevision = expectedRevision + 1
   await updateDoc(diagramRef(uid, diagramId), {
     title: nextDoc.title,
