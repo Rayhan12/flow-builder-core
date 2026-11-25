@@ -52,7 +52,10 @@ src/
     prompts.ts             system prompt with the schema
     ops.ts                 edit operations and apply/diff logic
     AssistantPanel.tsx     chat UI, diff preview, apply, undo
+  agent/                   AI agent panel, Gemini tool loop, browser DataPort (section 16)
   pages/                   Login, Signup, Diagrams list, Editor, Settings
+shared/
+  tools/                   pure agent tool layer shared with the MCP server (sections 15 and 16)
 ```
 
 Data flow: Firestore doc -> zod parse + migrate -> editor store -> React Flow. Edits go into the store (with history) and are saved back with a debounced write (about 1 second) plus a manual Save.
@@ -120,13 +123,16 @@ users/{uid}/projects/{projectId}/diagrams/{diagramId}
   nodeCount, createdAt, updatedAt, revision
 
 users/{uid}/projects/{projectId}/diagrams/{diagramId}/versions/{versionId}
-  doc, createdAt, reason ("manual" | "ai-apply" | "import")
+  doc, createdAt, reason ("manual" | "ai-apply" | "import" | "agent" | "mcp")
 
 users/{uid}/projects/{projectId}/diagrams/{diagramId}/messages/{messageId}
   role ("user" | "assistant"), text, ops?, createdAt, applied (bool)
 
 users/{uid}/agentChats/{chatId}
-  (per-user AI agent panel; schema TBD in section 16)
+  title, messageCount, createdAt, updatedAt  (per-user AI agent panel, see section 16)
+
+users/{uid}/agentChats/{chatId}/messages/{messageId}
+  role ("user" | "assistant"), text, toolCalls?, createdAt
 
 users/{uid}/diagrams/{diagramId}
   legacy path kept for migration (read/delete by owner)
@@ -298,6 +304,116 @@ Goal: let a user's own AI agent (Cursor, Claude Desktop, others) read and edit t
 - Order changed: M9 (Projects) runs before M11, and M10 runs after M11.
 - Make sure the Vercel build passes: `vercel.json` must not break the existing SPA deploy, the function must bundle its imports from `src/` or `server/` (avoid browser-only imports in shared code), and `firebase-admin` and `@modelcontextprotocol/sdk` must be in `dependencies`.
 
-## 16. AI agent panel (after M9 data layer)
+## 16. AI agent panel
 
-Shared Firestore layout: `users/{uid}/agentChats/{chatId}` for per-user agent conversations (separate from per-diagram AI chat under each diagram). The panel UI will reuse the same provider interface, ops, and project-scoped diagram tools as the in-editor assistant and the MCP server (section 15). Implementation is a follow-up task once the Projects UI ships; rules for `agentChats` are in place now.
+Goal: an agent panel in the app that manages projects and diagrams through the same ten tools as the MCP server (section 15). The user talks to it in plain language; it calls tools, shows each call as a card, and links to what it made. It runs fully in the browser with the user's own Gemini key (section 7), so the Spark plan is enough.
+
+### Layout
+
+```
+shared/tools/                 pure TypeScript, only depends on zod (no Firebase, React or browser APIs)
+  types.ts                    DataPort, ToolResult, ToolDefinition, ToolError, ExecuteOptions
+  mcpToolNames.ts             MCP_TOOL_NAMES, the exact list from section 15
+  definitions.ts              zod input schema, description and flags per tool
+  execute.ts                  executeTool(name, args, port, opts?)
+  memoryPort.ts               in-memory DataPort for tests
+  index.ts                    re-exports
+src/agent/
+  browserDataPort.ts          createBrowserDataPort(uid): DataPort on Firestore via src/data/*
+  geminiTools.ts              generateWithTools: Gemini function calling loop
+  prompts.ts                  system prompt, CREATE_FLOW_TOOLS
+  AgentPanel.tsx              drawer or dialog UI, chat history, key card, confirm dialog
+  ToolCallCard.tsx            one inline card per tool call
+  AiCreateFlow.tsx            AgentPanel preset for "AI create" (dialog, create tools only)
+  AgentPanelProvider.tsx      one shared panel for the app; useAgentPanel() opens it
+  agentCreate.ts              agentCreateDiagram: headless create handler
+  index.ts                    public exports
+src/data/agentChats.ts        chat history repo
+```
+
+Vite and TypeScript read `shared/` directly with relative imports (`../../shared/tools`). `tsconfig.app.json` includes `shared`, and Vitest runs `shared/**/*.test.ts`. Imports inside `shared/` use explicit `.ts` extensions so Node and Vercel can load the same files.
+
+### Tools (exact names, same as section 15)
+
+`list_projects`, `get_project`, `create_project`, `list_diagrams`, `get_diagram`, `create_diagram`, `update_diagram`, `apply_diagram_edits`, `rename_diagram`, `delete_diagram`.
+
+- Each has a zod input schema in `definitions.ts` (ids match `^[A-Za-z0-9_-]{1,128}$`, titles up to 200 characters, at most 500 ops per call).
+- `executeTool` validates args first, then calls the port. It never throws: it returns `{ ok: true, data, summary, openPath?, mutated }` or `{ ok: false, code, error }`. Codes: `invalid_args`, `unknown_tool`, `not_found`, `confirm_required`, `not_allowed`, `declined`, `failed`.
+- `openPath` is an app route for the Open link: `/p/{projectId}` for project results and `/p/{projectId}/d/{diagramId}` for diagram results.
+- Free-form JSON args (`diagram`, `ops`) are kept loose in the shared schema. The port validates them with the real diagram schema and `EditOpSchema`, so schema rules live in one place per runtime. Gemini cannot take free-form objects, so it receives these two args as JSON encoded strings and `executeTool` decodes them.
+- A test asserts that `MCP_TOOL_NAMES` equals the section 15 list exactly, that `TOOL_DEFINITIONS` has one entry per name, and that the Gemini function declarations use the same names.
+
+### DataPort
+
+```ts
+interface DataPort {
+  listProjects(): Promise<ProjectSummary[]>
+  getProject(projectId): Promise<ProjectSummary | null>
+  createProject({ name }): Promise<ProjectSummary>
+  listDiagrams(projectId): Promise<DiagramSummary[]>
+  getDiagram(projectId, diagramId): Promise<DiagramWithBody | null>
+  createDiagram(projectId, title, diagram?): Promise<DiagramSummary>
+  updateDiagram(projectId, diagramId, diagram): Promise<DiagramSummary>
+  applyDiagramEdits(projectId, diagramId, ops): Promise<DiagramSummary & { changeSummary }>
+  renameDiagram(projectId, diagramId, title): Promise<DiagramSummary>
+  deleteDiagram(projectId, diagramId): Promise<void>   // only after both confirm gates
+}
+```
+
+The port is already scoped to one user: no method takes a uid. Ports throw `ToolError(code, message)` for expected failures such as `not_found` and `invalid_args`.
+
+- Browser adapter (`createBrowserDataPort(uid)`): wraps `src/data/projects.ts`, `diagrams.ts` and `versions.ts`. Full replaces go through `applyReplace` and edits through `applyOps` from `src/ai/ops.ts`, so agent writes obey the same validation as the editor assistant. Invalid input is rejected before anything is written (a bad `create_diagram` leaves no empty diagram behind). Each write saves a version snapshot with `reason: "agent"`. `VersionReason` is now `manual | ai-apply | import | agent | mcp`. Diagrams that arrive without node positions are laid out with elk (loaded on demand).
+- MCP server (M11): implements the same interface with firebase-admin, scoped by the token's uid, saves snapshots with `reason: "mcp"`, and registers each tool from `TOOL_DEFINITIONS` (`def.input.shape` as the MCP input schema) with a handler that calls `executeTool(name, args, port, { allowDestructive: true })`. It may set `allowDestructive` because its schema already makes the client send `confirm: true`. No tool logic is duplicated.
+
+### Destructive actions
+
+`delete_diagram` has two gates, both required:
+
+1. `args.confirm === true`, supplied by the model or MCP client. Without it `executeTool` returns `invalid_args` or `confirm_required`.
+2. `opts.allowDestructive === true`, supplied by the caller after its own approval. Without it `executeTool` returns `not_allowed` and does not touch the port.
+
+In the browser, `generateWithTools` does a side-effect-free dry run first. If the model set `confirm: true`, it calls `confirmDestructive`, which opens the panel's confirm dialog ("Delete diagram? The agent wants to delete the diagram "X". This cannot be undone."). Only Delete runs the tool with `allowDestructive: true`. Cancel (or Escape, or closing the panel) returns `declined` to the model, which is told nothing changed. If the model forgets `confirm`, the user is not prompted at all.
+
+### Gemini function calling
+
+`generateWithTools` in `src/agent/geminiTools.ts` uses the REST `generateContent` endpoint with `tools: [{ functionDeclarations }]` and `functionCallingConfig.mode = AUTO`.
+
+- Declarations are built from the shared zod schemas with `z.toJSONSchema`, then mapped to the Gemini subset (`STRING`, `NUMBER`, `INTEGER`, `BOOLEAN`, `ARRAY`, `OBJECT`, `description`, `enum`, `properties`, `required`, `items`). Anything else (`pattern`, `additionalProperties`, `$schema`, length limits) is dropped, tools without args get no `parameters`, and free-form JSON args become strings.
+- Loop: send chat plus declarations; if the reply has `functionCall` parts, echo the model turn unchanged (keeps thought signatures), run each call with `executeTool`, send the results as `functionResponse` parts, and repeat until the model returns text or `maxSteps` model calls (default 8) are used. Large results are replaced by a short note past about 48,000 characters.
+- Returns `{ text, toolCalls: [{ id, name, args, status, result, openPath? }], steps }`. `onToolCall` fires when a call starts and ends, so the UI shows a running card.
+- Tools can be restricted per call (`tools: [...]`). The "AI create" flow uses `CREATE_FLOW_TOOLS` (no delete, no new projects).
+- The key comes from `keyStorage` (browser only) and the model from user settings. Errors from the API surface as an error bubble in the panel.
+
+### Chat history
+
+```
+users/{uid}/agentChats/{chatId}                  { title, messageCount, createdAt, updatedAt }
+users/{uid}/agentChats/{chatId}/messages/{mid}   { role: "user" | "assistant", text, toolCalls?, createdAt }
+```
+
+- A messages subcollection keeps each doc small and avoids the 1 MiB limit on one growing array. `firestore.rules` now also covers `agentChats/{chatId}/messages/{messageId}` (owner only); the rules test checks it. The new rule must be deployed with `firebase deploy --only firestore:rules` before history saves on the live project. Until then the panel keeps working and shows a notice that history was not saved.
+- `toolCalls` are stored compactly: `{ id, name, argsPreview (first 400 chars), status, summary, error?, openPath?, mutated? }`. Full diagram JSON is never stored in chat docs.
+- The chat is created on the first message and named from it. The general panel reopens the latest chat; the "AI create" flow and any open with an initial prompt start a new chat. A history button lists the last 20 chats, and a New chat button starts another.
+
+### AgentPanel UI
+
+- Two shapes from one component: `variant="drawer"` (380px, fixed to the right edge) and `variant="dialog"` (centred modal, 640px). It uses the design system tokens and the existing `.ai-*` bubble, key card and composer classes.
+- Missing key: the same inline card as the editor assistant (paste field, "Get a key", link to Settings). A prompt passed in before the key exists is kept and sent once the key is saved.
+- User bubbles, assistant bubbles, and tool call cards: tool name, status (Running, Done, Failed, Declined), one line summary or error, and an Open link when the result has an `openPath` (`Open project` or `Open diagram`). In the dialog variant Open also closes the dialog.
+- Props: `open`, `onClose`, `initialPrompt?`, `initialProjectId?`, `mode?: 'agent' | 'create'`, `variant?`, `onDataChanged?`. `initialProjectId` is passed to the model as the default project. `onDataChanged` fires after a tool changed data, so lists can refresh.
+- Exports (`src/agent/index.ts`): `AgentPanel`, `AiCreateFlow` (same `open`, `onClose`, `initialPrompt?`, `initialProjectId?`), `AgentPanelProvider` with `useAgentPanel()` (`openAgent`, `openAiCreate`, `closeAgent`), `createBrowserDataPort`, `generateWithTools`, and `agentCreateDiagram`.
+
+### Entry points
+
+- Sidebar "AI create" and the project page "AI create" button: `openAiCreate({ projectId })` from `AppDataProvider` now renders `AiCreateFlow` (the agent panel as a dialog, create tools only, `initialProjectId` set to the current project). After the agent changes data, the provider reloads the project list and any loaded diagram lists.
+- Dashboard "Ask AI" box: keeps its form (prompt plus project picker) and now uses `agentCreateDiagram` as its `onGenerate` handler (set in `App.tsx`). It runs the same Gemini tool loop headless and opens the new diagram. To open the full chat from the dashboard instead, render `<AgentPanel open onClose initialPrompt={text} initialProjectId={id} variant="dialog" />`, or wrap the app in `AgentPanelProvider` and call `useAgentPanel().openAgent({ prompt, projectId })`.
+- All of these reuse `AgentPanel`; nothing else implements an agent UI.
+- The agent panel changes data in Firestore. It does not edit a diagram that is open in the editor store, so it is meant for the dashboard, project pages and sidebar; the in-editor assistant (section 7) stays the tool for the open diagram.
+
+### Tests
+
+- `shared/tools/mcpToolNames.test.ts`: names equal the section 15 list exactly; definitions match; only `delete_diagram` is destructive.
+- `shared/tools/execute.test.ts`: validation, not found, JSON string args, both delete gates, error mapping, using the in-memory port.
+- `src/agent/geminiTools.test.ts`: declarations match the MCP names and avoid unsupported schema keys; the loop, error feedback, step limit, tool allow list and the confirm guard, with a scripted `fetch`.
+- `src/agent/AgentPanel.test.tsx`: key card, tool cards with Open links, history load and save, initial prompt, confirm dialog (Cancel and Delete), failures.
+- `src/agent/browserDataPort.emulator.test.ts` and `src/data/agentChats.emulator.test.ts`: tools against the Auth and Firestore emulators (skipped without `FIRESTORE_EMULATOR_HOST`). `tests/rules.test.ts` covers `agentChats/.../messages`.

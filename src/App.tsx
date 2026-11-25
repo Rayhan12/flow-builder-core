@@ -1,4 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { agentCreateDiagram } from './agent'
 import { AuthProvider } from './auth/AuthProvider'
 import { AppDataProvider } from './app/AppDataProvider'
 import { AppShell } from './components/AppShell'
@@ -39,7 +40,7 @@ export default function App() {
             <Route
               element={
                 <ProtectedRoute>
-                  <AppDataProvider />
+                  <AppDataProvider onGenerate={agentCreateDiagram} />
                 </ProtectedRoute>
               }
             >

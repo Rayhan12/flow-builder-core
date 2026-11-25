@@ -176,4 +176,17 @@ describe.skipIf(!run)('Firestore rules', () => {
     await assertFails(getDoc(doc(other, 'users', OWNER, 'agentChats', 'c1')))
     await assertFails(setDoc(doc(other, 'users', OWNER, 'agentChats', 'c2'), { title: 'Nope' }))
   })
+
+  it('lets the owner use agentChats messages and blocks other users', async () => {
+    const owner = env.authenticatedContext(OWNER).firestore()
+    const ref = doc(owner, 'users', OWNER, 'agentChats', 'c1', 'messages', 'm1')
+    await assertSucceeds(setDoc(ref, { role: 'user', text: 'hi', createdAt: new Date() }))
+    await assertSucceeds(getDoc(ref))
+
+    const other = env.authenticatedContext(OTHER).firestore()
+    await assertFails(getDoc(doc(other, 'users', OWNER, 'agentChats', 'c1', 'messages', 'm1')))
+    await assertFails(
+      setDoc(doc(other, 'users', OWNER, 'agentChats', 'c1', 'messages', 'm2'), { text: 'no' }),
+    )
+  })
 })

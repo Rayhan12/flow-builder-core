@@ -93,7 +93,7 @@ export const TOOL_DEFINITIONS: { [K in ToolName]: ToolDefinition & { name: K } }
   update_diagram: {
     name: 'update_diagram',
     description:
-      'Replace the whole content of a diagram. Use for a big rewrite; use apply_diagram_edits for small changes. A version snapshot is saved first.',
+      'Replace the whole content of a diagram. Use for a big rewrite; use apply_diagram_edits for small changes. A version snapshot is saved.',
     input: z.object({ projectId, diagramId, diagram: diagramJson }),
     destructive: false,
     mutating: true,

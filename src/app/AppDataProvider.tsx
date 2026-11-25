@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Outlet } from 'react-router-dom'
+import { AiCreateFlow } from '../agent'
 import { stubAiCreate, type AiCreateHandler } from '../ai/createFromPrompt'
 import { useAuth } from '../auth/useAuth'
-import { AiCreateDialog } from '../components/AiCreateDialog'
 import { listDiagrams, type DiagramListItem } from '../data/diagrams'
 import { listProjects, type ProjectListItem } from '../data/projects'
 import { AppDataContext, type AppDataContextValue } from './appDataContext'
 
 type AppDataProviderProps = {
-  /** Swap in the AI agent here; defaults to the empty-diagram stub. */
+  /** Used by the dashboard box. The sidebar and project page open the agent panel instead. */
   onGenerate?: AiCreateHandler
 }
 
@@ -60,6 +60,12 @@ export function AppDataProvider({ onGenerate = stubAiCreate }: AppDataProviderPr
     [uid],
   )
 
+  // The agent panel changes Firestore directly, so reload what the sidebar shows.
+  const onAgentDataChanged = useCallback(() => {
+    void refreshProjects()
+    for (const projectId of loadedRef.current) void loadProjectDiagrams(projectId, true)
+  }, [refreshProjects, loadProjectDiagrams])
+
   const openAiCreate = useCallback((opts?: { projectId?: string }) => {
     setAiProjectId(opts?.projectId)
     setAiOpen(true)
@@ -89,11 +95,11 @@ export function AppDataProvider({ onGenerate = stubAiCreate }: AppDataProviderPr
   return (
     <AppDataContext.Provider value={value}>
       <Outlet />
-      <AiCreateDialog
+      <AiCreateFlow
         open={aiOpen}
-        defaultProjectId={aiProjectId}
+        initialProjectId={aiProjectId}
         onClose={() => setAiOpen(false)}
-        onGenerate={onGenerate}
+        onDataChanged={onAgentDataChanged}
       />
     </AppDataContext.Provider>
   )
