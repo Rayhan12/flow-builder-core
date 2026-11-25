@@ -17,8 +17,12 @@ export const app = initializeApp(firebaseConfig)
 export const auth = getAuth(app)
 export const db = getFirestore(app)
 
+const emulatorHostHint = (
+  globalThis as { process?: { env?: Record<string, string | undefined> } }
+).process?.env?.FIRESTORE_EMULATOR_HOST
+
 export const usingEmulators =
-  env.VITE_USE_EMULATORS === 'true' || !env.VITE_FIREBASE_API_KEY
+  env.VITE_USE_EMULATORS === 'true' || !env.VITE_FIREBASE_API_KEY || Boolean(emulatorHostHint)
 
 let emulatorsConnected = false
 
