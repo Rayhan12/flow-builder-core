@@ -76,7 +76,7 @@ describe('EditorPage', () => {
 
     expect(await screen.findByRole('button', { name: 'BNPL flow' })).toBeInTheDocument()
     expect(screen.getByLabelText('Node palette')).toBeInTheDocument()
-    expect(screen.getByText('No node selected')).toBeInTheDocument()
+    expect(screen.getByText('Nothing selected')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Auto layout' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Import / Export' })).toBeInTheDocument()

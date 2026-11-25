@@ -21,10 +21,11 @@ import {
   useRef,
   useState,
   type DragEvent,
+  type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from 'react'
 import { EmptyState } from '../components/EmptyState'
-import type { DiagramNode } from '../schema'
+import { isContainerKind, type DiagramNode } from '../schema'
 import { useEditorStore } from '../store/editorStore'
 import {
   computeAlignment,
@@ -45,6 +46,7 @@ import {
   isPaletteDrag,
   readPaletteDragKind,
 } from './paletteDrop'
+import { sortNodesForCanvas } from './zOrder'
 
 import '@xyflow/react/dist/style.css'
 
@@ -60,12 +62,15 @@ function findGroupAtPoint(
   excludeId?: string,
 ): DiagramNode | undefined {
   const groups = nodes.filter(
-    (n) => n.kind === 'group' && n.id !== excludeId && n.data.collapsed !== true,
+    (n) =>
+      isContainerKind(n.kind) &&
+      n.id !== excludeId &&
+      (n.kind === 'group' || n.kind === 'section' ? n.data.collapsed !== true : true),
   )
   for (let i = groups.length - 1; i >= 0; i -= 1) {
     const group = groups[i]
-    const w = group.size?.w ?? 360
-    const h = group.size?.h ?? 240
+    const w = group.size?.w ?? (group.kind === 'section' ? 480 : 360)
+    const h = group.size?.h ?? (group.kind === 'section' ? 320 : 240)
     if (
       point.x >= group.position.x &&
       point.x <= group.position.x + w &&
@@ -104,23 +109,38 @@ export function Canvas({ onDropKind, emptyAction, gridMode = 'dots' }: Props) {
 
   const wrapperRef = useRef<HTMLDivElement>(null)
   const [altHeld, setAltHeld] = useState(false)
+  const [spaceHeld, setSpaceHeld] = useState(false)
   const [guides, setGuides] = useState<AlignmentGuide[]>([])
   const [spacings, setSpacings] = useState<SpacingHint[]>([])
   const [paletteDragOver, setPaletteDragOver] = useState(false)
   const [dropGhost, setDropGhost] = useState<{ x: number; y: number } | null>(null)
+  const [contextMenu, setContextMenu] = useState<{
+    x: number
+    y: number
+    nodeIds: string[]
+  } | null>(null)
   const dragDepthRef = useRef(0)
   const diagramNodes = diagram?.nodes
   const diagramEdges = diagram?.edges
+  const reorderZ = useEditorStore((s) => s.reorderZ)
+  const toggleHidden = useEditorStore((s) => s.toggleHidden)
+  const toggleLocked = useEditorStore((s) => s.toggleLocked)
+  const showAllHidden = useEditorStore((s) => s.showAllHidden)
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === 'Alt') setAltHeld(true)
+      if (e.code === 'Space' && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLTextAreaElement)) {
+        setSpaceHeld(true)
+      }
     }
     function onKeyUp(e: KeyboardEvent) {
       if (e.key === 'Alt') setAltHeld(false)
+      if (e.code === 'Space') setSpaceHeld(false)
     }
     function onBlur() {
       setAltHeld(false)
+      setSpaceHeld(false)
     }
     window.addEventListener('keydown', onKeyDown)
     window.addEventListener('keyup', onKeyUp)
@@ -136,20 +156,30 @@ export function Canvas({ onDropKind, emptyAction, gridMode = 'dots' }: Props) {
     const set = new Set<string>()
     if (!diagramNodes) return set
     for (const n of diagramNodes) {
-      if (n.kind === 'group' && n.data.collapsed) set.add(n.id)
+      if (
+        (n.kind === 'group' || n.kind === 'section') &&
+        n.data.collapsed
+      ) {
+        set.add(n.id)
+      }
     }
     return set
   }, [diagramNodes])
 
+  const hiddenNodeIds = useMemo(() => {
+    const set = new Set<string>()
+    if (!diagramNodes) return set
+    for (const n of diagramNodes) {
+      if (n.hidden) set.add(n.id)
+      if (n.parentId && collapsedParents.has(n.parentId)) set.add(n.id)
+    }
+    return set
+  }, [diagramNodes, collapsedParents])
+
   const nodes: FlowNode[] = useMemo(() => {
     if (!diagramNodes) return []
     const selected = new Set(selectedNodeIds)
-    const ordered = [...diagramNodes].sort((a, b) => {
-      const aGroup = a.kind === 'group' ? 0 : 1
-      const bGroup = b.kind === 'group' ? 0 : 1
-      return aGroup - bGroup
-    })
-    return ordered.map((n) =>
+    return sortNodesForCanvas(diagramNodes).map((n) =>
       toFlowNode(n, selected.has(n.id), {
         parentCollapsed: Boolean(n.parentId && collapsedParents.has(n.parentId)),
       }),
@@ -159,15 +189,10 @@ export function Canvas({ onDropKind, emptyAction, gridMode = 'dots' }: Props) {
   const edges: FlowEdge[] = useMemo(() => {
     if (!diagramNodes || !diagramEdges) return []
     const selected = new Set(selectedEdgeIds)
-    const hidden = new Set(
-      diagramNodes
-        .filter((n) => n.parentId && collapsedParents.has(n.parentId))
-        .map((n) => n.id),
-    )
     return diagramEdges
-      .filter((e) => !hidden.has(e.source) && !hidden.has(e.target))
+      .filter((e) => !hiddenNodeIds.has(e.source) && !hiddenNodeIds.has(e.target))
       .map((e) => toFlowEdge(e, selected.has(e.id)))
-  }, [diagramNodes, diagramEdges, selectedEdgeIds, collapsedParents])
+  }, [diagramNodes, diagramEdges, selectedEdgeIds, hiddenNodeIds])
 
   const clearGuides = useCallback(() => {
     setGuides([])
@@ -273,6 +298,8 @@ export function Canvas({ onDropKind, emptyAction, gridMode = 'dots' }: Props) {
 
   const onSelectionChange = useCallback(
     ({ nodes: n, edges: e }: OnSelectionChangeParams<FlowNode, FlowEdge>) => {
+      // Prefer React Flow's live selection so the properties panel tracks clicks,
+      // marquee and shift-toggles — not only the last added node.
       setSelection(
         n.map((node) => node.id),
         e.map((edge) => edge.id),
@@ -281,13 +308,49 @@ export function Canvas({ onDropKind, emptyAction, gridMode = 'dots' }: Props) {
     [setSelection],
   )
 
+  const onNodeClick = useCallback(
+    (event: ReactMouseEvent, node: FlowNode) => {
+      // Backup path: some controlled updates can skip onSelectionChange.
+      // Shift-click is handled by React Flow multi-select; leave that alone.
+      if (event.shiftKey) return
+      setSelection([node.id], [])
+    },
+    [setSelection],
+  )
+
+  const onEdgeClick = useCallback(
+    (_: unknown, edge: FlowEdge) => {
+      setSelection([], [edge.id])
+    },
+    [setSelection],
+  )
+
+  const onNodeContextMenu = useCallback(
+    (event: ReactMouseEvent, node: FlowNode) => {
+      event.preventDefault()
+      const state = useEditorStore.getState()
+      const ids = state.selectedNodeIds.includes(node.id)
+        ? state.selectedNodeIds
+        : [node.id]
+      if (!state.selectedNodeIds.includes(node.id)) {
+        setSelection(ids, [])
+      }
+      setContextMenu({ x: event.clientX, y: event.clientY, nodeIds: ids })
+    },
+    [setSelection],
+  )
+
+  const onPaneClick = useCallback(() => {
+    setContextMenu(null)
+  }, [])
+
   const onNodeDragStop = useCallback(
     (_: unknown, node: FlowNode) => {
       clearGuides()
       const d = useEditorStore.getState().diagram
       if (!d) return
       const diagramNode = d.nodes.find((n) => n.id === node.id)
-      if (!diagramNode || diagramNode.kind === 'group') return
+      if (!diagramNode || isContainerKind(diagramNode.kind)) return
 
       const updated: DiagramNode = { ...diagramNode, position: node.position }
       const world = worldPosition(updated, [
@@ -395,6 +458,10 @@ export function Canvas({ onDropKind, emptyAction, gridMode = 'dots' }: Props) {
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onSelectionChange={onSelectionChange}
+        onNodeClick={onNodeClick}
+        onEdgeClick={onEdgeClick}
+        onNodeContextMenu={onNodeContextMenu}
+        onPaneClick={onPaneClick}
         onNodeDragStop={onNodeDragStop}
         onViewportChange={onViewportChange}
         defaultViewport={diagram.viewport}
@@ -407,13 +474,19 @@ export function Canvas({ onDropKind, emptyAction, gridMode = 'dots' }: Props) {
         snapToGrid={!altHeld}
         snapGrid={[GRID_SIZE, GRID_SIZE]}
         deleteKeyCode={['Backspace', 'Delete']}
-        multiSelectionKeyCode={['Meta', 'Control']}
+        multiSelectionKeyCode={['Shift']}
+        selectionOnDrag={!spaceHeld}
+        panOnDrag={spaceHeld ? true : [1, 2]}
+        panOnScroll
+        nodesConnectable
+        edgesReconnectable
         connectionRadius={24}
         proOptions={{ hideAttribution: true }}
         defaultEdgeOptions={{
           type: 'flow',
           markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14, color: '#8b8d98' },
         }}
+        className={spaceHeld ? 'is-panning' : undefined}
       >
         {gridMode === 'dots' ? (
           <>
@@ -469,7 +542,94 @@ export function Canvas({ onDropKind, emptyAction, gridMode = 'dots' }: Props) {
             />
           </Panel>
         ) : null}
+        {diagram.nodes.some((n) => n.hidden) ? (
+          <Panel position="top-right" className="canvas-hidden-panel">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              data-testid="show-all-hidden-canvas"
+              onClick={() => showAllHidden()}
+            >
+              Show all hidden
+            </button>
+          </Panel>
+        ) : null}
       </ReactFlow>
+      {contextMenu ? (
+        <div
+          className="canvas-context-menu"
+          role="menu"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+          data-testid="canvas-context-menu"
+        >
+          <button
+            type="button"
+            role="menuitem"
+            className="canvas-context-item"
+            onClick={() => {
+              reorderZ(contextMenu.nodeIds, 'forward')
+              setContextMenu(null)
+            }}
+          >
+            Bring forward
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="canvas-context-item"
+            onClick={() => {
+              reorderZ(contextMenu.nodeIds, 'backward')
+              setContextMenu(null)
+            }}
+          >
+            Send backward
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="canvas-context-item"
+            onClick={() => {
+              reorderZ(contextMenu.nodeIds, 'front')
+              setContextMenu(null)
+            }}
+          >
+            Bring to front
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="canvas-context-item"
+            onClick={() => {
+              reorderZ(contextMenu.nodeIds, 'back')
+              setContextMenu(null)
+            }}
+          >
+            Send to back
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="canvas-context-item"
+            onClick={() => {
+              toggleHidden(contextMenu.nodeIds)
+              setContextMenu(null)
+            }}
+          >
+            Hide / show
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="canvas-context-item"
+            onClick={() => {
+              toggleLocked(contextMenu.nodeIds)
+              setContextMenu(null)
+            }}
+          >
+            Lock / unlock
+          </button>
+        </div>
+      ) : null}
     </div>
   )
 }

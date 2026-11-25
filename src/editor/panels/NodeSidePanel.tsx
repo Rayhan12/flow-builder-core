@@ -1,57 +1,162 @@
-import { createElement, useState } from 'react'
-import { MousePointerClick, Plus, Trash2, X } from 'lucide-react'
+import { createElement, useMemo, useState } from 'react'
+import {
+  BringToFront,
+  Eye,
+  EyeOff,
+  Lock,
+  MousePointerClick,
+  Plus,
+  SendToBack,
+  Trash2,
+  Unlock,
+  X,
+} from 'lucide-react'
 import { EmptyState } from '../../components/EmptyState'
-import type { DiagramNode } from '../../schema'
+import { isContainerKind, type DiagramEdge, type DiagramNode } from '../../schema'
 import { useEditorStore } from '../../store/editorStore'
 import { ColourPicker } from '../ColourPicker'
 import { resolveColor } from '../colors'
 import { absolutePosition } from '../flowTypes'
 import { getLucideIcon } from '../icons'
 import { IconPicker } from '../IconPicker'
-import { KIND_META, newNodeId } from '../kinds'
+import { KIND_META } from '../kinds'
+import { DecisionBranchesEditor } from './DecisionBranchesEditor'
+import { RuleBuilder } from './RuleBuilder'
 
 type PanelTab = 'settings' | 'look' | 'notes'
+
+const MIXED = 'Mixed'
+
+function sharedValue<T>(values: T[]): T | typeof MIXED {
+  if (values.length === 0) return MIXED
+  const first = values[0]
+  return values.every((v) => Object.is(v, first)) ? first : MIXED
+}
 
 export function NodeSidePanel() {
   const diagram = useEditorStore((s) => s.diagram)
   const selectedNodeIds = useEditorStore((s) => s.selectedNodeIds)
+  const selectedEdgeIds = useEditorStore((s) => s.selectedEdgeIds)
   const replaceNode = useEditorStore((s) => s.replaceNode)
   const updateNode = useEditorStore((s) => s.updateNode)
+  const updateNodes = useEditorStore((s) => s.updateNodes)
+  const updateEdges = useEditorStore((s) => s.updateEdges)
   const removeNodes = useEditorStore((s) => s.removeNodes)
+  const removeEdges = useEditorStore((s) => s.removeEdges)
   const setNodeParent = useEditorStore((s) => s.setNodeParent)
   const clearSelection = useEditorStore((s) => s.clearSelection)
+  const toggleHidden = useEditorStore((s) => s.toggleHidden)
+  const toggleLocked = useEditorStore((s) => s.toggleLocked)
+  const reorderZ = useEditorStore((s) => s.reorderZ)
   const [tab, setTab] = useState<PanelTab>('settings')
 
-  const node =
-    diagram && selectedNodeIds.length === 1
-      ? diagram.nodes.find((n) => n.id === selectedNodeIds[0])
-      : undefined
+  const selectedNodes = useMemo(() => {
+    if (!diagram) return [] as DiagramNode[]
+    const set = new Set(selectedNodeIds)
+    return diagram.nodes.filter((n) => set.has(n.id))
+  }, [diagram, selectedNodeIds])
 
-  if (!node) {
+  const selectedEdges = useMemo(() => {
+    if (!diagram) return [] as DiagramEdge[]
+    const set = new Set(selectedEdgeIds)
+    return diagram.edges.filter((e) => set.has(e.id))
+  }, [diagram, selectedEdgeIds])
+
+  if (!diagram) return null
+
+  if (selectedNodes.length === 0 && selectedEdges.length === 0) {
     return (
-      <aside className="side-panel" aria-label="Node details">
+      <aside className="side-panel" aria-label="Selection details" data-testid="properties-panel">
         <EmptyState
           icon={MousePointerClick}
-          title="No node selected"
-          hint="Click a node on the canvas to edit it."
+          title="Nothing selected"
+          hint="Click a node or connector on the canvas to edit it."
           className="side-panel-empty-state"
         />
       </aside>
     )
   }
 
-  function setField<K extends keyof DiagramNode>(key: K, value: DiagramNode[K]) {
-    updateNode(node!.id, { [key]: value } as Partial<DiagramNode>)
+  if (selectedNodes.length === 0 && selectedEdges.length > 0) {
+    const labels = selectedEdges.map((e) => e.label ?? '')
+    const labelValue = sharedValue(labels)
+    return (
+      <aside className="side-panel" aria-label="Connector details" data-testid="properties-panel">
+        <div className="side-panel-header">
+          <div className="side-panel-header-text">
+            <span className="side-panel-kind">
+              {selectedEdges.length === 1 ? 'Connector' : `${selectedEdges.length} connectors`}
+            </span>
+            <input
+              className="side-panel-title-input"
+              value={labelValue === MIXED ? '' : labelValue}
+              placeholder={labelValue === MIXED ? MIXED : 'Label'}
+              aria-label="Connector label"
+              maxLength={200}
+              onChange={(e) => updateEdges(selectedEdgeIds, { label: e.target.value || undefined })}
+            />
+          </div>
+          <button
+            type="button"
+            className="btn btn-ghost btn-icon"
+            aria-label="Close panel"
+            onClick={clearSelection}
+          >
+            <X size={16} />
+          </button>
+        </div>
+        <section className="side-section">
+          <h3 className="side-section-label">Connector</h3>
+          <label className="field">
+            <span>Label {labelValue === MIXED ? `(${MIXED})` : ''}</span>
+            <input
+              value={labelValue === MIXED ? '' : labelValue}
+              placeholder={labelValue === MIXED ? MIXED : ''}
+              onChange={(e) => updateEdges(selectedEdgeIds, { label: e.target.value || undefined })}
+            />
+          </label>
+          <button
+            type="button"
+            className="btn btn-ghost btn-danger-icon"
+            onClick={() => removeEdges(selectedEdgeIds)}
+          >
+            <Trash2 size={16} />
+            Delete connector{selectedEdges.length > 1 ? 's' : ''}
+          </button>
+        </section>
+      </aside>
+    )
   }
 
-  const groups =
-    diagram?.nodes.filter((n) => n.kind === 'group' && n.id !== node.id) ?? []
+  const multi = selectedNodes.length > 1
+  const node = selectedNodes[0]
+  const labelShared = sharedValue(selectedNodes.map((n) => n.label))
+  const iconShared = sharedValue(selectedNodes.map((n) => n.icon ?? ''))
+  const colorShared = sharedValue(selectedNodes.map((n) => n.color ?? ''))
+  const descShared = sharedValue(selectedNodes.map((n) => n.description ?? ''))
+  const anyHidden = selectedNodes.some((n) => n.hidden)
+  const anyLocked = selectedNodes.some((n) => n.locked)
   const meta = KIND_META[node.kind]
-  const color = resolveColor(node.color, meta.defaultColor)
-  const Icon = getLucideIcon(node.icon, meta.icon)
+  const color = resolveColor(
+    colorShared === MIXED ? undefined : colorShared || undefined,
+    meta.defaultColor,
+  )
+  const Icon = getLucideIcon(
+    iconShared === MIXED ? undefined : iconShared || undefined,
+    meta.icon,
+  )
+
+  const groups =
+    diagram.nodes.filter(
+      (n) => isContainerKind(n.kind) && !selectedNodeIds.includes(n.id),
+    ) ?? []
+
+  function setFieldOnAll<K extends keyof DiagramNode>(key: K, value: DiagramNode[K]) {
+    updateNodes(selectedNodeIds, { [key]: value } as Partial<DiagramNode>)
+  }
 
   return (
-    <aside className="side-panel" aria-label="Node details">
+    <aside className="side-panel" aria-label="Node details" data-testid="properties-panel">
       <div className="side-panel-header">
         <div className="side-panel-header-main">
           <span
@@ -62,13 +167,19 @@ export function NodeSidePanel() {
             {createElement(Icon, { size: 16, strokeWidth: 2 })}
           </span>
           <div className="side-panel-header-text">
-            <span className="side-panel-kind">{meta.label}</span>
+            <span className="side-panel-kind">
+              {multi
+                ? `${selectedNodes.length} selected`
+                : meta.label}
+            </span>
             <input
               className="side-panel-title-input"
-              value={node.label}
+              value={labelShared === MIXED ? '' : labelShared}
+              placeholder={labelShared === MIXED ? MIXED : 'Label'}
               maxLength={200}
               aria-label="Node title"
-              onChange={(e) => setField('label', e.target.value)}
+              data-testid="properties-label"
+              onChange={(e) => setFieldOnAll('label', e.target.value)}
             />
           </div>
         </div>
@@ -79,6 +190,64 @@ export function NodeSidePanel() {
           onClick={clearSelection}
         >
           <X size={16} />
+        </button>
+      </div>
+
+      <div className="side-panel-quick" role="toolbar" aria-label="Selection actions">
+        <button
+          type="button"
+          className="btn btn-ghost btn-icon"
+          aria-label={anyHidden ? 'Show' : 'Hide'}
+          title={anyHidden ? 'Show' : 'Hide'}
+          data-testid="properties-hide"
+          onClick={() => toggleHidden(selectedNodeIds)}
+        >
+          {anyHidden ? <EyeOff size={16} /> : <Eye size={16} />}
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost btn-icon"
+          aria-label={anyLocked ? 'Unlock' : 'Lock'}
+          title={anyLocked ? 'Unlock' : 'Lock'}
+          onClick={() => toggleLocked(selectedNodeIds)}
+        >
+          {anyLocked ? <Lock size={16} /> : <Unlock size={16} />}
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost btn-icon"
+          aria-label="Bring forward"
+          title="Bring forward (Ctrl/Cmd+])"
+          onClick={() => reorderZ(selectedNodeIds, 'forward')}
+        >
+          <BringToFront size={16} />
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost btn-icon"
+          aria-label="Send backward"
+          title="Send backward (Ctrl/Cmd+[)"
+          onClick={() => reorderZ(selectedNodeIds, 'backward')}
+        >
+          <SendToBack size={16} />
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost btn-icon"
+          aria-label="Bring to front"
+          title="Bring to front"
+          onClick={() => reorderZ(selectedNodeIds, 'front')}
+        >
+          <BringToFront size={16} />
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost btn-icon"
+          aria-label="Send to back"
+          title="Send to back"
+          onClick={() => reorderZ(selectedNodeIds, 'back')}
+        >
+          <SendToBack size={16} />
         </button>
       </div>
 
@@ -108,29 +277,30 @@ export function NodeSidePanel() {
           <section className="side-section">
             <h3 className="side-section-label">General</h3>
             <label className="field">
-              <span>Label</span>
+              <span>Label {labelShared === MIXED ? `(${MIXED})` : ''}</span>
               <input
-                value={node.label}
+                value={labelShared === MIXED ? '' : labelShared}
+                placeholder={labelShared === MIXED ? MIXED : ''}
                 maxLength={200}
-                onChange={(e) => setField('label', e.target.value)}
+                onChange={(e) => setFieldOnAll('label', e.target.value)}
               />
               <p className="field-help">Short name shown on the node card.</p>
             </label>
-            {node.kind !== 'group' && groups.length > 0 ? (
+            {!multi && node.kind !== 'group' && node.kind !== 'section' && groups.length > 0 ? (
               <label className="field">
                 <span>Parent group</span>
                 <select
                   value={node.parentId ?? ''}
                   onChange={(e) => {
                     const next = e.target.value || undefined
-                    const abs = absolutePosition(node, diagram!.nodes)
+                    const abs = absolutePosition(node, diagram.nodes)
                     setNodeParent(node.id, next, abs)
                   }}
                 >
                   <option value="">None</option>
                   {groups.map((g) => (
                     <option key={g.id} value={g.id}>
-                      {g.kind === 'group' ? g.data.label : g.label}
+                      {g.kind === 'group' || g.kind === 'section' ? g.data.label : g.label}
                     </option>
                   ))}
                 </select>
@@ -139,42 +309,60 @@ export function NodeSidePanel() {
             ) : null}
           </section>
 
-          <KindDetails node={node} replaceNode={replaceNode} />
+          {!multi ? (
+            <KindDetails
+              node={node}
+              edges={diagram.edges}
+              replaceNode={replaceNode}
+              removeEdges={removeEdges}
+            />
+          ) : (
+            <section className="side-section">
+              <p className="field-help">
+                Shared fields show {MIXED} when values differ. Edits apply to all selected nodes.
+              </p>
+            </section>
+          )}
 
           <section className="side-section">
             <button
               type="button"
               className="btn btn-ghost btn-danger-icon"
-              onClick={() => removeNodes([node.id])}
+              onClick={() => removeNodes(selectedNodeIds)}
             >
               <Trash2 size={16} />
-              Delete {node.kind === 'group' ? 'group' : 'node'}
+              Delete {multi ? 'selection' : isContainerKind(node.kind) ? 'group' : 'node'}
             </button>
           </section>
         </>
       ) : null}
 
       {tab === 'look' ? (
-        <section className="side-section">
+        <section className="side-section" data-testid="look-section">
           <h3 className="side-section-label">Look</h3>
           <label className="field">
-            <span>Icon</span>
-            <IconPicker value={node.icon} onChange={(name) => setField('icon', name)} />
+            <span>Icon {iconShared === MIXED ? `(${MIXED})` : ''}</span>
+            <IconPicker
+              value={iconShared === MIXED ? undefined : iconShared || undefined}
+              onChange={(name) => setFieldOnAll('icon', name)}
+            />
             <p className="field-help">Pick a lucide icon for the coloured tile.</p>
           </label>
           <label className="field">
-            <span>Colour</span>
+            <span>Colour {colorShared === MIXED ? `(${MIXED})` : ''}</span>
             <ColourPicker
-              value={node.color}
+              value={colorShared === MIXED ? undefined : colorShared || undefined}
               onChange={(nextColor) => {
-                if (node.kind === 'group') {
-                  replaceNode({
-                    ...node,
-                    color: nextColor,
-                    data: { ...node.data, color: nextColor },
-                  })
-                } else {
-                  setField('color', nextColor)
+                for (const n of selectedNodes) {
+                  if (n.kind === 'group' || n.kind === 'section') {
+                    replaceNode({
+                      ...n,
+                      color: nextColor,
+                      data: { ...n.data, color: nextColor },
+                    })
+                  } else {
+                    updateNode(n.id, { color: nextColor })
+                  }
                 }
               }}
             />
@@ -187,16 +375,17 @@ export function NodeSidePanel() {
         <section className="side-section">
           <h3 className="side-section-label">Notes</h3>
           <label className="field">
-            <span>Description</span>
+            <span>Description {descShared === MIXED ? `(${MIXED})` : ''}</span>
             <textarea
               className="field-textarea"
               rows={4}
-              value={node.description ?? ''}
-              onChange={(e) => setField('description', e.target.value || undefined)}
+              value={descShared === MIXED ? '' : descShared}
+              placeholder={descShared === MIXED ? MIXED : ''}
+              onChange={(e) => setFieldOnAll('description', e.target.value || undefined)}
             />
             <p className="field-help">Shown under the title on the canvas, two lines max.</p>
           </label>
-          {node.kind === 'step' ? (
+          {!multi && node.kind === 'step' ? (
             <label className="field">
               <span>Step notes</span>
               <textarea
@@ -210,12 +399,22 @@ export function NodeSidePanel() {
                   })
                 }
               />
-              <p className="field-help">Internal detail for this process step.</p>
             </label>
           ) : null}
-          {node.kind === 'note' ? (
+          {!multi && node.kind === 'note' ? (
             <label className="field">
               <span>Note text</span>
+              <textarea
+                className="field-textarea"
+                rows={5}
+                value={node.data.text}
+                onChange={(e) => replaceNode({ ...node, data: { text: e.target.value } })}
+              />
+            </label>
+          ) : null}
+          {!multi && node.kind === 'sticky' ? (
+            <label className="field">
+              <span>Sticky text</span>
               <textarea
                 className="field-textarea"
                 rows={5}
@@ -232,10 +431,14 @@ export function NodeSidePanel() {
 
 function KindDetails({
   node,
+  edges,
   replaceNode,
+  removeEdges,
 }: {
   node: DiagramNode
+  edges: DiagramEdge[]
   replaceNode: (node: DiagramNode) => void
+  removeEdges: (ids: string[]) => void
 }) {
   switch (node.kind) {
     case 'step':
@@ -259,52 +462,12 @@ function KindDetails({
       )
     case 'decision':
       return (
-        <section className="side-section">
-          <h3 className="side-section-label">Branches</h3>
-          <p className="field-help">Each branch becomes an output handle on the node.</p>
-          <div className="side-list">
-            {node.data.branches.map((branch, index) => (
-              <div key={branch.id} className="side-list-row">
-                <input
-                  value={branch.label}
-                  aria-label={`Branch ${index + 1} label`}
-                  onChange={(e) => {
-                    const branches = node.data.branches.map((b, i) =>
-                      i === index ? { ...b, label: e.target.value } : b,
-                    )
-                    replaceNode({ ...node, data: { branches } })
-                  }}
-                />
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-icon btn-danger-icon"
-                  aria-label={`Remove branch ${branch.label}`}
-                  disabled={node.data.branches.length <= 1}
-                  onClick={() => {
-                    const branches = node.data.branches.filter((_, i) => i !== index)
-                    replaceNode({ ...node, data: { branches } })
-                  }}
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            ))}
-          </div>
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={() => {
-              const branches = [
-                ...node.data.branches,
-                { id: newNodeId('br'), label: `Branch ${node.data.branches.length + 1}` },
-              ]
-              replaceNode({ ...node, data: { branches } })
-            }}
-          >
-            <Plus size={14} />
-            Add branch
-          </button>
-        </section>
+        <DecisionBranchesEditor
+          node={node}
+          edges={edges}
+          onChange={replaceNode}
+          onRemoveEdges={removeEdges}
+        />
       )
     case 'mapping':
       return (
@@ -375,7 +538,6 @@ function KindDetails({
                 replaceNode({ ...node, data: { ...node.data, service: e.target.value } })
               }
             />
-            <p className="field-help">Name of the system you call.</p>
           </label>
           <label className="field">
             <span>Method</span>
@@ -388,7 +550,6 @@ function KindDetails({
                 })
               }
             />
-            <p className="field-help">HTTP method such as GET or POST.</p>
           </label>
           <label className="field">
             <span>Endpoint</span>
@@ -401,94 +562,20 @@ function KindDetails({
                 })
               }
             />
-            <p className="field-help">Path or URL for the call.</p>
           </label>
         </section>
       )
     case 'rule':
-      return (
-        <section className="side-section">
-          <h3 className="side-section-label">Rules</h3>
-          <label className="field">
-            <span>Threshold</span>
-            <input
-              type="number"
-              value={node.data.threshold ?? ''}
-              onChange={(e) =>
-                replaceNode({
-                  ...node,
-                  data: {
-                    ...node.data,
-                    threshold: e.target.value === '' ? undefined : Number(e.target.value),
-                  },
-                })
-              }
-            />
-            <p className="field-help">Optional score cut-off for this rule set.</p>
-          </label>
-          <div className="side-list">
-            {node.data.rules.map((row, index) => (
-              <div key={index} className="side-list-row stacked">
-                <input
-                  placeholder="Condition"
-                  value={row.condition}
-                  onChange={(e) => {
-                    const rules = node.data.rules.map((r, i) =>
-                      i === index ? { ...r, condition: e.target.value } : r,
-                    )
-                    replaceNode({ ...node, data: { ...node.data, rules } })
-                  }}
-                />
-                <input
-                  placeholder="Outcome"
-                  value={row.outcome}
-                  onChange={(e) => {
-                    const rules = node.data.rules.map((r, i) =>
-                      i === index ? { ...r, outcome: e.target.value } : r,
-                    )
-                    replaceNode({ ...node, data: { ...node.data, rules } })
-                  }}
-                />
-                <button
-                  type="button"
-                  className="btn btn-ghost btn-icon btn-danger-icon"
-                  aria-label={`Remove rule ${index + 1}`}
-                  onClick={() => {
-                    const rules = node.data.rules.filter((_, i) => i !== index)
-                    replaceNode({ ...node, data: { ...node.data, rules } })
-                  }}
-                >
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            ))}
-          </div>
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={() =>
-              replaceNode({
-                ...node,
-                data: {
-                  ...node.data,
-                  rules: [...node.data.rules, { condition: '', outcome: '' }],
-                },
-              })
-            }
-          >
-            <Plus size={14} />
-            Add rule
-          </button>
-        </section>
-      )
-    case 'group': {
+      return <RuleBuilder node={node} onChange={replaceNode} />
+    case 'group':
+    case 'section': {
       const groupColor = resolveColor(node.data.color ?? node.color, 'gray')
       const collapsed = node.data.collapsed === true
       return (
         <section className="side-section">
           <h3 className="side-section-label">Details</h3>
           <label className="field">
-            <span>Group label</span>
+            <span>{node.kind === 'section' ? 'Section' : 'Group'} label</span>
             <input
               value={node.data.label}
               onChange={(e) =>
@@ -514,11 +601,38 @@ function KindDetails({
             <span>Collapsed</span>
           </label>
           <p className="side-hint" style={{ color: groupColor.solid }}>
-            Drag nodes onto this group to nest them, or pick a parent group in Settings.
+            Drag nodes onto this container to nest them. Collapsing hides children and their
+            connectors.
           </p>
         </section>
       )
     }
+    case 'shape':
+      return (
+        <section className="side-section">
+          <h3 className="side-section-label">Shape</h3>
+          <label className="field">
+            <span>Kind</span>
+            <select
+              value={node.data.shape}
+              onChange={(e) =>
+                replaceNode({
+                  ...node,
+                  data: {
+                    ...node.data,
+                    shape: e.target.value as 'rect' | 'rounded' | 'diamond' | 'ellipse',
+                  },
+                })
+              }
+            >
+              <option value="rect">Rectangle</option>
+              <option value="rounded">Rounded</option>
+              <option value="diamond">Diamond</option>
+              <option value="ellipse">Ellipse</option>
+            </select>
+          </label>
+        </section>
+      )
     default:
       return null
   }

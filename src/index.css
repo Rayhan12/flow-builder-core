@@ -1000,13 +1000,52 @@ input {
   grid-template-columns: 56px 1fr 380px;
 }
 
-.node-palette {
-  background: var(--color-surface-2);
-  border-right: 1px solid var(--color-border);
+.editor-left {
   display: flex;
   flex-direction: column;
   min-height: 0;
   min-width: 0;
+  background: var(--color-surface-2);
+  border-right: 1px solid var(--color-border);
+}
+
+.editor-left-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.editor-left-tab {
+  flex: 1;
+  height: 36px;
+  border: 0;
+  background: transparent;
+  font-size: var(--text-caption);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-3);
+  cursor: pointer;
+}
+
+.editor-left-tab:hover {
+  color: var(--color-text);
+}
+
+.editor-left-tab.is-active {
+  color: var(--color-accent);
+  box-shadow: inset 0 -2px 0 var(--color-accent);
+}
+
+.node-palette {
+  background: transparent;
+  border-right: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
 }
 
 .node-palette.is-collapsed {
@@ -3541,4 +3580,290 @@ kbd {
   .nav-chevron svg {
     transition: none;
   }
+}
+
+/* Layers panel */
+.layers-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+  padding: 8px 0 12px;
+}
+
+.layers-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 12px 8px;
+}
+
+.layers-panel-title {
+  margin: 0;
+  font-size: var(--text-caption);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-3);
+}
+
+.layers-search {
+  padding: 0 12px 8px;
+}
+
+.layers-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  flex: 1;
+}
+
+.layers-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 8px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  margin: 0 8px;
+}
+
+.layers-row:hover {
+  background: var(--color-surface);
+}
+
+.layers-row.is-selected {
+  background: var(--color-accent-subtle);
+}
+
+.layers-row.is-hidden {
+  opacity: 0.55;
+}
+
+.layers-row.is-hidden .layers-row-label {
+  color: var(--color-text-3);
+}
+
+.layers-row-kind {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-3);
+}
+
+.layers-row-label {
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.layers-eye {
+  opacity: 0.7;
+}
+
+.layers-row:hover .layers-eye,
+.layers-row.is-hidden .layers-eye {
+  opacity: 1;
+}
+
+/* Properties quick actions + builders */
+.side-panel-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 8px 16px 0;
+}
+
+.condition-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.condition-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.condition-combinator {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  font-size: var(--text-caption);
+  font-weight: 600;
+  color: var(--color-accent);
+  cursor: pointer;
+}
+
+.condition-combinator.is-muted {
+  cursor: default;
+  color: var(--color-text-3);
+}
+
+.condition-field,
+.condition-operator,
+.condition-value {
+  min-width: 0;
+  flex: 1 1 72px;
+  height: 32px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-2);
+  padding: 0 8px;
+  font-size: var(--text-sm);
+}
+
+.condition-add {
+  align-self: flex-start;
+}
+
+.rule-builder-list,
+.decision-branch-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.rule-card,
+.decision-branch-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  background: var(--color-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rule-card-header,
+.decision-branch-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rule-card-title {
+  flex: 1;
+  font-size: var(--text-sm);
+  font-weight: 500;
+}
+
+.rule-preview {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-tint);
+  color: var(--color-text-2);
+  font-size: var(--text-sm);
+}
+
+.decision-mode-toggle {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.decision-mode-toggle .btn.is-active {
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+}
+
+.decision-branch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.confirm-inline {
+  margin-top: 8px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+}
+
+.confirm-inline-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.flow-node-hide-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text-3);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.flow-node {
+  position: relative;
+}
+
+.flow-node:hover .flow-node-hide-btn,
+.flow-group:hover .flow-node-hide-btn,
+.flow-node.is-selected .flow-node-hide-btn {
+  display: inline-flex;
+}
+
+.flow-group {
+  position: relative;
+}
+
+.flow-group .flow-node-hide-btn {
+  position: static;
+  margin-left: auto;
+}
+
+.canvas-context-menu {
+  position: fixed;
+  z-index: 40;
+  min-width: 180px;
+  padding: 6px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-float);
+}
+
+.canvas-context-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  color: var(--color-text);
+}
+
+.canvas-context-item:hover {
+  background: var(--color-surface-2);
+}
+
+.react-flow.is-panning {
+  cursor: grab;
+}
+
+.canvas-hidden-panel {
+  margin: 12px;
 }

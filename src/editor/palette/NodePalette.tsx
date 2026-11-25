@@ -18,10 +18,10 @@ type PaletteGroup = {
 }
 
 const PALETTE_GROUPS: PaletteGroup[] = [
-  { id: 'flow', label: 'Flow', kinds: ['start', 'end', 'step', 'group'] },
+  { id: 'flow', label: 'Flow', kinds: ['start', 'end', 'step', 'group', 'section'] },
   { id: 'logic', label: 'Logic', kinds: ['decision', 'rule'] },
   { id: 'data', label: 'Data', kinds: ['mapping', 'integration'] },
-  { id: 'other', label: 'Other', kinds: ['note'] },
+  { id: 'other', label: 'Other', kinds: ['note', 'sticky', 'shape'] },
 ]
 
 const COLLAPSE_KEY = 'flow-builder.palette-collapsed'

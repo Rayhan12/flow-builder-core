@@ -47,6 +47,7 @@ import { isEditableKeyboardTarget } from '../editor/keyboard'
 import { autoLayoutDiagram, type LayoutDirection } from '../editor/layout'
 import { NodeSearch, type NodeSearchResult } from '../editor/NodeSearch'
 import { NodePalette } from '../editor/palette/NodePalette'
+import { LayersPanel } from '../editor/panels/LayersPanel'
 import { NodeSidePanel } from '../editor/panels/NodeSidePanel'
 import type { NodeKind } from '../schema'
 import { NodeKindSchema } from '../schema'
@@ -104,6 +105,11 @@ function EditorInner() {
   const duplicateSelection = useEditorStore((s) => s.duplicateSelection)
   const clearSelection = useEditorStore((s) => s.clearSelection)
   const setSelection = useEditorStore((s) => s.setSelection)
+  const selectedNodeIds = useEditorStore((s) => s.selectedNodeIds)
+  const toggleHidden = useEditorStore((s) => s.toggleHidden)
+  const toggleLocked = useEditorStore((s) => s.toggleLocked)
+  const showAllHidden = useEditorStore((s) => s.showAllHidden)
+  const reorderZ = useEditorStore((s) => s.reorderZ)
 
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -115,6 +121,7 @@ function EditorInner() {
   const [assistantOpen, setAssistantOpen] = useState(false)
   const [nodeSearchOpen, setNodeSearchOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  const [leftTab, setLeftTab] = useState<'assets' | 'layers'>('assets')
   const [gridMode, setGridMode] = useState<GridMode>('dots')
   const savingRef = useRef(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -251,6 +258,23 @@ function EditorInner() {
       } else if (key === 'd' && !typing) {
         e.preventDefault()
         duplicateSelection()
+      } else if (key === 'h' && e.shiftKey && !typing) {
+        e.preventDefault()
+        if (selectedNodeIds.length) toggleHidden(selectedNodeIds)
+      } else if (key === 'l' && e.shiftKey && !typing) {
+        e.preventDefault()
+        if (selectedNodeIds.length) toggleLocked(selectedNodeIds)
+      } else if (key === ']' && !typing) {
+        e.preventDefault()
+        if (!selectedNodeIds.length) return
+        reorderZ(selectedNodeIds, e.altKey || e.shiftKey ? 'front' : 'forward')
+      } else if (key === '[' && !typing) {
+        e.preventDefault()
+        if (!selectedNodeIds.length) return
+        reorderZ(selectedNodeIds, e.altKey || e.shiftKey ? 'back' : 'backward')
+      } else if (key === '.' && e.shiftKey && !typing) {
+        e.preventDefault()
+        showAllHidden()
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -266,6 +290,11 @@ function EditorInner() {
     nodeSearchOpen,
     shortcutsOpen,
     assistantOpen,
+    selectedNodeIds,
+    toggleHidden,
+    toggleLocked,
+    reorderZ,
+    showAllHidden,
   ])
 
   useEffect(() => {
@@ -280,7 +309,10 @@ function EditorInner() {
   const onAddKind = useCallback(
     (kind: NodeKind) => {
       const offset = useEditorStore.getState().diagram?.nodes.length ?? 0
-      addNode(kind, { x: 120 + (offset % 5) * 40, y: 80 + (offset % 5) * 40 })
+      addNode(kind, {
+        x: 120 + (offset % 4) * 280,
+        y: 80 + Math.floor(offset / 4) * 160,
+      })
     },
     [addNode],
   )
@@ -626,7 +658,34 @@ function EditorInner() {
       </header>
 
       <div className={`editor-body ${assistantOpen ? 'has-ai-panel' : ''}`}>
-        <NodePalette onAdd={onAddKind} diagramTitle={diagram.title} />
+        <div className="editor-left">
+          <div className="editor-left-tabs" role="tablist" aria-label="Left panel">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={leftTab === 'assets'}
+              className={`editor-left-tab ${leftTab === 'assets' ? 'is-active' : ''}`}
+              onClick={() => setLeftTab('assets')}
+            >
+              Assets
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={leftTab === 'layers'}
+              className={`editor-left-tab ${leftTab === 'layers' ? 'is-active' : ''}`}
+              data-testid="layers-tab"
+              onClick={() => setLeftTab('layers')}
+            >
+              Layers
+            </button>
+          </div>
+          {leftTab === 'assets' ? (
+            <NodePalette onAdd={onAddKind} diagramTitle={diagram.title} />
+          ) : (
+            <LayersPanel />
+          )}
+        </div>
         <Canvas
           gridMode={gridMode}
           onDropKind={onDropKind}
@@ -691,6 +750,12 @@ function EditorInner() {
               </li>
               <li>
                 <kbd>Ctrl/Cmd</kbd>+<kbd>K</kbd> Search or add nodes
+              </li>
+              <li>
+                <kbd>Ctrl/Cmd</kbd>+<kbd>Shift</kbd>+<kbd>H</kbd> Hide / show
+              </li>
+              <li>
+                <kbd>Ctrl/Cmd</kbd>+<kbd>]</kbd> / <kbd>[</kbd> Bring forward / send backward
               </li>
               <li>
                 <kbd>Delete</kbd> Remove selection
