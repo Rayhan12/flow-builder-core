@@ -341,7 +341,7 @@ export function AssistantPanel({
         ) : null}
         {items.length === 0 && keyPresent ? (
           <div className="ai-empty">
-            <Sparkles size={32} className="ai-empty-icon" aria-hidden />
+            <Sparkles size={40} className="ai-empty-icon" strokeWidth={1.5} aria-hidden />
             <p className="ai-empty-title">Ask for a new flow or a change</p>
             <p className="ai-empty-hint">
               Example: Create a BNPL approval flow with credit check and merchant payout

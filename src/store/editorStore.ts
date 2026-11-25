@@ -1,8 +1,16 @@
 import { create } from 'zustand'
 import type { Diagram, DiagramEdge, DiagramNode, NodeKind } from '../schema'
-import { createNodeOfKind, newEdgeId } from '../editor/kinds'
+import { createNodeOfKind, newEdgeId, newNodeId } from '../editor/kinds'
 
 const MAX_HISTORY = 80
+const PASTE_OFFSET = 40
+
+type ClipboardPayload = {
+  nodes: DiagramNode[]
+  edges: DiagramEdge[]
+}
+
+let editorClipboard: ClipboardPayload | null = null
 
 type DiagramBody = {
   title: string
@@ -62,6 +70,10 @@ type EditorState = {
   setSelection: (nodeIds: string[], edgeIds: string[]) => void
   clearSelection: () => void
 
+  copySelection: () => boolean
+  pasteClipboard: () => boolean
+  duplicateSelection: () => boolean
+
   undo: () => void
   redo: () => void
   canUndo: () => boolean
@@ -71,6 +83,42 @@ type EditorState = {
   markSaved: (revision: number) => void
   markSaveError: (message: string) => void
   markDirty: () => void
+}
+
+function remapClipboard(
+  payload: ClipboardPayload,
+  offset: { x: number; y: number },
+): { nodes: DiagramNode[]; edges: DiagramEdge[]; idMap: Map<string, string> } {
+  const idMap = new Map<string, string>()
+  for (const node of payload.nodes) {
+    idMap.set(node.id, newNodeId(node.kind === 'group' ? 'g' : 'n'))
+  }
+
+  const nodes = payload.nodes.map((node) => {
+    const nextId = idMap.get(node.id)!
+    const parentId =
+      node.parentId && idMap.has(node.parentId) ? idMap.get(node.parentId) : undefined
+    return {
+      ...structuredClone(node),
+      id: nextId,
+      parentId,
+      position: {
+        x: node.position.x + offset.x,
+        y: node.position.y + offset.y,
+      },
+    } as DiagramNode
+  })
+
+  const edges = payload.edges
+    .filter((edge) => idMap.has(edge.source) && idMap.has(edge.target))
+    .map((edge) => ({
+      ...structuredClone(edge),
+      id: newEdgeId(),
+      source: idMap.get(edge.source)!,
+      target: idMap.get(edge.target)!,
+    }))
+
+  return { nodes, edges, idMap }
 }
 
 function cloneBody(diagram: Diagram): HistoryEntry {
@@ -362,6 +410,58 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setSelection: (nodeIds, edgeIds) => set({ selectedNodeIds: nodeIds, selectedEdgeIds: edgeIds }),
 
   clearSelection: () => set({ selectedNodeIds: [], selectedEdgeIds: [] }),
+
+  copySelection: () => {
+    const state = get()
+    if (!state.diagram || state.selectedNodeIds.length === 0) return false
+    const selected = new Set(state.selectedNodeIds)
+    const nodes = state.diagram.nodes.filter((n) => selected.has(n.id))
+    const edges = state.diagram.edges.filter(
+      (e) =>
+        (selected.has(e.source) && selected.has(e.target)) ||
+        state.selectedEdgeIds.includes(e.id),
+    )
+    editorClipboard = {
+      nodes: structuredClone(nodes),
+      edges: structuredClone(edges),
+    }
+    return true
+  },
+
+  pasteClipboard: () => {
+    if (!editorClipboard || editorClipboard.nodes.length === 0) return false
+    const { nodes, edges } = remapClipboard(editorClipboard, {
+      x: PASTE_OFFSET,
+      y: PASTE_OFFSET,
+    })
+    // Nudge clipboard so repeated pastes keep offsetting
+    editorClipboard = {
+      nodes: editorClipboard.nodes.map((n) => ({
+        ...n,
+        position: { x: n.position.x + PASTE_OFFSET, y: n.position.y + PASTE_OFFSET },
+      })),
+      edges: editorClipboard.edges,
+    }
+
+    set((state) =>
+      withHistory(state, (d) => ({
+        ...d,
+        nodes: [...d.nodes, ...nodes],
+        edges: [...d.edges, ...edges],
+      })),
+    )
+    set({
+      selectedNodeIds: nodes.map((n) => n.id),
+      selectedEdgeIds: edges.map((e) => e.id),
+    })
+    return true
+  },
+
+  duplicateSelection: () => {
+    const copied = get().copySelection()
+    if (!copied) return false
+    return get().pasteClipboard()
+  },
 
   undo: () =>
     set((state) => {

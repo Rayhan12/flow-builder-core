@@ -91,4 +91,26 @@ describe('editorStore', () => {
     expect(d?.nodes).toHaveLength(0)
     expect(useEditorStore.getState().saveStatus).toBe('dirty')
   })
+
+  it('copies, pastes and duplicates selected nodes with new ids', () => {
+    useEditorStore.getState().load(createEmptyDiagram('d1'), 0)
+    const a = useEditorStore.getState().addNode('step', { x: 10, y: 20 })!
+    const b = useEditorStore.getState().addNode('end', { x: 10, y: 140 })!
+    useEditorStore.getState().addEdgeFromConnection({ source: a, target: b })
+    useEditorStore.getState().setSelection([a, b], [])
+
+    expect(useEditorStore.getState().copySelection()).toBe(true)
+    expect(useEditorStore.getState().pasteClipboard()).toBe(true)
+
+    const afterPaste = useEditorStore.getState().diagram!
+    expect(afterPaste.nodes).toHaveLength(4)
+    expect(afterPaste.edges).toHaveLength(2)
+    const pastedIds = useEditorStore.getState().selectedNodeIds
+    expect(pastedIds).toHaveLength(2)
+    expect(pastedIds.includes(a)).toBe(false)
+
+    useEditorStore.getState().setSelection([a], [])
+    expect(useEditorStore.getState().duplicateSelection()).toBe(true)
+    expect(useEditorStore.getState().diagram?.nodes).toHaveLength(5)
+  })
 })

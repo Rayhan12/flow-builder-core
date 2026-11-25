@@ -2,22 +2,30 @@ import { ReactFlowProvider, useReactFlow } from '@xyflow/react'
 import {
   ArrowLeft,
   Download,
+  FileQuestion,
+  Keyboard,
   LayoutTemplate,
   Moon,
   Redo2,
   Save,
+  Search,
   Sparkles,
   Sun,
   Undo2,
   Upload,
   Workflow,
 } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { AssistantPanel } from '../ai/AssistantPanel'
 import { useAuth } from '../auth/useAuth'
+import { EmptyState } from '../components/EmptyState'
 import { getDiagram, saveDiagram } from '../data/diagrams'
 import { Canvas } from '../editor/Canvas'
+import {
+  DIAGRAM_SIZE_WARN_BYTES,
+  estimateDiagramBytes,
+} from '../editor/fixtures/largeDiagram'
 import {
   diagramFilename,
   downloadJsonFile,
@@ -25,7 +33,9 @@ import {
   mergeImportedDiagram,
   parseImportedJson,
 } from '../editor/importExport'
+import { isEditableKeyboardTarget } from '../editor/keyboard'
 import { autoLayoutDiagram, type LayoutDirection } from '../editor/layout'
+import { NodeSearch, type NodeSearchResult } from '../editor/NodeSearch'
 import { NodePalette } from '../editor/palette/NodePalette'
 import { NodeSidePanel } from '../editor/panels/NodeSidePanel'
 import type { NodeKind } from '../schema'
@@ -73,6 +83,11 @@ function EditorInner() {
   const markSaveError = useEditorStore((s) => s.markSaveError)
   const applyNodeLayout = useEditorStore((s) => s.applyNodeLayout)
   const replaceDiagramContent = useEditorStore((s) => s.replaceDiagramContent)
+  const copySelection = useEditorStore((s) => s.copySelection)
+  const pasteClipboard = useEditorStore((s) => s.pasteClipboard)
+  const duplicateSelection = useEditorStore((s) => s.duplicateSelection)
+  const clearSelection = useEditorStore((s) => s.clearSelection)
+  const setSelection = useEditorStore((s) => s.setSelection)
 
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -82,10 +97,20 @@ function EditorInner() {
   const [ioMenuOpen, setIoMenuOpen] = useState(false)
   const [ioError, setIoError] = useState<string | null>(null)
   const [assistantOpen, setAssistantOpen] = useState(false)
+  const [nodeSearchOpen, setNodeSearchOpen] = useState(false)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const savingRef = useRef(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const ioMenuRef = useRef<HTMLDivElement>(null)
   const uid = user?.uid
+
+  const sizeWarning = useMemo(() => {
+    if (!diagram) return null
+    const bytes = estimateDiagramBytes(diagram)
+    if (bytes < DIAGRAM_SIZE_WARN_BYTES) return null
+    const kb = Math.round(bytes / 1024)
+    return `This diagram is about ${kb} KB. Firestore docs max out near 1 MB. Consider splitting it.`
+  }, [diagram])
 
   useEffect(() => {
     if (!uid || !diagramId) return
@@ -150,8 +175,41 @@ function EditorInner() {
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       const meta = e.metaKey || e.ctrlKey
-      if (!meta) return
       const key = e.key.toLowerCase()
+      const typing = isEditableKeyboardTarget(e.target)
+
+      if (key === 'escape') {
+        if (nodeSearchOpen) {
+          setNodeSearchOpen(false)
+          return
+        }
+        if (shortcutsOpen) {
+          setShortcutsOpen(false)
+          return
+        }
+        if (assistantOpen) {
+          setAssistantOpen(false)
+          return
+        }
+        if (!typing) clearSelection()
+        return
+      }
+
+      if (meta && key === 'k') {
+        e.preventDefault()
+        setNodeSearchOpen(true)
+        return
+      }
+
+      if (meta && key === '/') {
+        e.preventDefault()
+        setShortcutsOpen(true)
+        return
+      }
+
+      if (!meta) return
+      if (typing && key !== 's') return
+
       if (key === 'z' && !e.shiftKey) {
         e.preventDefault()
         undo()
@@ -161,11 +219,31 @@ function EditorInner() {
       } else if (key === 's') {
         e.preventDefault()
         void persist()
+      } else if (key === 'c' && !typing) {
+        e.preventDefault()
+        copySelection()
+      } else if (key === 'v' && !typing) {
+        e.preventDefault()
+        pasteClipboard()
+      } else if (key === 'd' && !typing) {
+        e.preventDefault()
+        duplicateSelection()
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [undo, redo, persist])
+  }, [
+    undo,
+    redo,
+    persist,
+    copySelection,
+    pasteClipboard,
+    duplicateSelection,
+    clearSelection,
+    nodeSearchOpen,
+    shortcutsOpen,
+    assistantOpen,
+  ])
 
   useEffect(() => {
     if (!ioMenuOpen) return
@@ -247,6 +325,22 @@ function EditorInner() {
     setEditingTitle(false)
   }
 
+  const onNodeSearchSelect = useCallback(
+    (result: NodeSearchResult) => {
+      setNodeSearchOpen(false)
+      if (result.type === 'add') {
+        const offset = useEditorStore.getState().diagram?.nodes.length ?? 0
+        addNode(result.kind, { x: 120 + (offset % 5) * 40, y: 80 + (offset % 5) * 40 })
+        return
+      }
+      setSelection([result.nodeId], [])
+      requestAnimationFrame(() =>
+        fitView({ padding: 0.35, duration: 200, nodes: [{ id: result.nodeId }] }),
+      )
+    },
+    [addNode, fitView, setSelection],
+  )
+
   if (loading) {
     return <div className="page-loading">Opening diagram...</div>
   }
@@ -254,13 +348,16 @@ function EditorInner() {
   if (loadError || !diagram) {
     return (
       <div className="page-loading">
-        <div className="empty-state" style={{ maxWidth: 420 }}>
-          <h2>{loadError ?? 'Diagram not found'}</h2>
-          <p>Go back to your diagrams list and try again.</p>
-          <Link to="/" className="btn btn-primary">
-            Back to diagrams
-          </Link>
-        </div>
+        <EmptyState
+          icon={FileQuestion}
+          title={loadError ?? 'Diagram not found'}
+          hint="Go back to your diagrams list and try again."
+          action={
+            <Link to="/" className="btn btn-primary">
+              Back to diagrams
+            </Link>
+          }
+        />
       </div>
     )
   }
@@ -309,9 +406,32 @@ function EditorInner() {
             {saveLabel(saveStatus, saveError)}
           </span>
           {ioError ? <span className="save-status is-error">{ioError}</span> : null}
+          {sizeWarning ? (
+            <span className="save-status is-warning" role="status">
+              {sizeWarning}
+            </span>
+          ) : null}
         </div>
 
         <div className="editor-topbar-right">
+          <button
+            type="button"
+            className="btn btn-ghost btn-icon"
+            aria-label="Search nodes"
+            title="Search nodes (Ctrl/Cmd+K)"
+            onClick={() => setNodeSearchOpen(true)}
+          >
+            <Search size={18} />
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-icon"
+            aria-label="Keyboard shortcuts"
+            title="Keyboard shortcuts (Ctrl/Cmd+/)"
+            onClick={() => setShortcutsOpen(true)}
+          >
+            <Keyboard size={18} />
+          </button>
           <button
             type="button"
             className="btn btn-ghost btn-icon"
@@ -425,7 +545,18 @@ function EditorInner() {
 
       <div className={`editor-body ${assistantOpen ? 'has-ai-panel' : ''}`}>
         <NodePalette onAdd={onAddKind} />
-        <Canvas onDropKind={onDropKind} />
+        <Canvas
+          onDropKind={onDropKind}
+          emptyAction={
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => setNodeSearchOpen(true)}
+            >
+              Add a node
+            </button>
+          }
+        />
         {assistantOpen && diagramId ? (
           <AssistantPanel
             open={assistantOpen}
@@ -436,6 +567,62 @@ function EditorInner() {
           <NodeSidePanel />
         )}
       </div>
+
+      <NodeSearch
+        open={nodeSearchOpen}
+        nodes={diagram.nodes}
+        onClose={() => setNodeSearchOpen(false)}
+        onSelect={onNodeSearchSelect}
+      />
+
+      {shortcutsOpen ? (
+        <div
+          className="dialog-backdrop"
+          role="presentation"
+          onClick={() => setShortcutsOpen(false)}
+        >
+          <div
+            className="dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="shortcuts-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="shortcuts-title">Keyboard shortcuts</h2>
+            <ul className="shortcuts-list">
+              <li>
+                <kbd>Ctrl/Cmd</kbd>+<kbd>Z</kbd> Undo
+              </li>
+              <li>
+                <kbd>Ctrl/Cmd</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> Redo
+              </li>
+              <li>
+                <kbd>Ctrl/Cmd</kbd>+<kbd>S</kbd> Save
+              </li>
+              <li>
+                <kbd>Ctrl/Cmd</kbd>+<kbd>C</kbd> / <kbd>V</kbd> Copy / Paste
+              </li>
+              <li>
+                <kbd>Ctrl/Cmd</kbd>+<kbd>D</kbd> Duplicate selection
+              </li>
+              <li>
+                <kbd>Ctrl/Cmd</kbd>+<kbd>K</kbd> Search or add nodes
+              </li>
+              <li>
+                <kbd>Delete</kbd> Remove selection
+              </li>
+              <li>
+                <kbd>Esc</kbd> Clear selection or close panels
+              </li>
+            </ul>
+            <div className="dialog-actions">
+              <button type="button" className="btn btn-secondary" onClick={() => setShortcutsOpen(false)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

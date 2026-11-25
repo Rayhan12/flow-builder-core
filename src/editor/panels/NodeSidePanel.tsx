@@ -1,4 +1,5 @@
-import { Plus, Trash2, X } from 'lucide-react'
+import { MousePointerClick, Plus, Trash2, X } from 'lucide-react'
+import { EmptyState } from '../../components/EmptyState'
 import type { DiagramNode } from '../../schema'
 import { useEditorStore } from '../../store/editorStore'
 import { ColourPicker } from '../ColourPicker'
@@ -24,10 +25,12 @@ export function NodeSidePanel() {
   if (!node) {
     return (
       <aside className="side-panel" aria-label="Node details">
-        <div className="side-panel-empty">
-          <p className="side-panel-empty-title">No node selected</p>
-          <p className="side-panel-empty-hint">Click a node on the canvas to edit it.</p>
-        </div>
+        <EmptyState
+          icon={MousePointerClick}
+          title="No node selected"
+          hint="Click a node on the canvas to edit it."
+          className="side-panel-empty-state"
+        />
       </aside>
     )
   }

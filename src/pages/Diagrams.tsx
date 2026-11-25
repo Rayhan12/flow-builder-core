@@ -2,6 +2,7 @@ import { Copy, FilePlus2, Pencil, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
+import { EmptyState } from '../components/EmptyState'
 import {
   createDiagram,
   deleteDiagram,
@@ -149,19 +150,21 @@ export function DiagramsPage() {
       {loading ? (
         <p className="page-status">Loading diagrams...</p>
       ) : items.length === 0 ? (
-        <div className="empty-state">
-          <FilePlus2 className="empty-state-icon" size={40} strokeWidth={1.5} aria-hidden />
-          <h2>No diagrams yet</h2>
-          <p>Create your first flow to get started.</p>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => void onCreate()}
-            disabled={busy || !uid}
-          >
-            New diagram
-          </button>
-        </div>
+        <EmptyState
+          icon={FilePlus2}
+          title="No diagrams yet"
+          hint="Create your first flow to get started."
+          action={
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => void onCreate()}
+              disabled={busy || !uid}
+            >
+              New diagram
+            </button>
+          }
+        />
       ) : (
         <ul className="diagram-list">
           {items.map((item) => (

@@ -4,6 +4,7 @@ import {
   Controls,
   MarkerType,
   MiniMap,
+  Panel,
   ReactFlow,
   useReactFlow,
   type Connection,
@@ -12,7 +13,9 @@ import {
   type OnSelectionChangeParams,
   type Viewport,
 } from '@xyflow/react'
-import { useCallback, useMemo, useRef, type DragEvent } from 'react'
+import { MousePointerClick } from 'lucide-react'
+import { useCallback, useMemo, useRef, type DragEvent, type ReactNode } from 'react'
+import { EmptyState } from '../components/EmptyState'
 import type { DiagramNode } from '../schema'
 import { useEditorStore } from '../store/editorStore'
 import { edgeTypes } from './edges/edgeTypes'
@@ -23,6 +26,7 @@ import '@xyflow/react/dist/style.css'
 
 type Props = {
   onDropKind?: (kind: string, position: { x: number; y: number }) => void
+  emptyAction?: ReactNode
 }
 
 function findGroupAtPoint(
@@ -60,7 +64,7 @@ function worldPosition(node: DiagramNode, nodes: DiagramNode[]): { x: number; y:
   }
 }
 
-export function Canvas({ onDropKind }: Props) {
+export function Canvas({ onDropKind, emptyAction }: Props) {
   const diagram = useEditorStore((s) => s.diagram)
   const selectedNodeIds = useEditorStore((s) => s.selectedNodeIds)
   const selectedEdgeIds = useEditorStore((s) => s.selectedEdgeIds)
@@ -75,20 +79,22 @@ export function Canvas({ onDropKind }: Props) {
   const { screenToFlowPosition } = useReactFlow()
 
   const wrapperRef = useRef<HTMLDivElement>(null)
+  const diagramNodes = diagram?.nodes
+  const diagramEdges = diagram?.edges
 
   const collapsedParents = useMemo(() => {
     const set = new Set<string>()
-    if (!diagram) return set
-    for (const n of diagram.nodes) {
+    if (!diagramNodes) return set
+    for (const n of diagramNodes) {
       if (n.kind === 'group' && n.data.collapsed) set.add(n.id)
     }
     return set
-  }, [diagram])
+  }, [diagramNodes])
 
   const nodes: FlowNode[] = useMemo(() => {
-    if (!diagram) return []
+    if (!diagramNodes) return []
     const selected = new Set(selectedNodeIds)
-    const ordered = [...diagram.nodes].sort((a, b) => {
+    const ordered = [...diagramNodes].sort((a, b) => {
       const aGroup = a.kind === 'group' ? 0 : 1
       const bGroup = b.kind === 'group' ? 0 : 1
       return aGroup - bGroup
@@ -98,20 +104,20 @@ export function Canvas({ onDropKind }: Props) {
         parentCollapsed: Boolean(n.parentId && collapsedParents.has(n.parentId)),
       }),
     )
-  }, [diagram, selectedNodeIds, collapsedParents])
+  }, [diagramNodes, selectedNodeIds, collapsedParents])
 
   const edges: FlowEdge[] = useMemo(() => {
-    if (!diagram) return []
+    if (!diagramNodes || !diagramEdges) return []
     const selected = new Set(selectedEdgeIds)
     const hidden = new Set(
-      diagram.nodes
+      diagramNodes
         .filter((n) => n.parentId && collapsedParents.has(n.parentId))
         .map((n) => n.id),
     )
-    return diagram.edges
+    return diagramEdges
       .filter((e) => !hidden.has(e.source) && !hidden.has(e.target))
       .map((e) => toFlowEdge(e, selected.has(e.id)))
-  }, [diagram, selectedEdgeIds, collapsedParents])
+  }, [diagramNodes, diagramEdges, selectedEdgeIds, collapsedParents])
 
   const onNodesChange = useCallback(
     (changes: NodeChangeset<FlowNode>) => {
@@ -269,6 +275,17 @@ export function Canvas({ onDropKind }: Props) {
           nodeStrokeWidth={2}
           maskColor="color-mix(in srgb, var(--color-chrome-dark) 12%, transparent)"
         />
+        {diagram.nodes.length === 0 ? (
+          <Panel position="top-center" className="canvas-empty-panel">
+            <EmptyState
+              icon={MousePointerClick}
+              title="Empty canvas"
+              hint="Drag a node from the left, or press Ctrl/Cmd+K to search and add one."
+              action={emptyAction}
+              className="canvas-empty-state"
+            />
+          </Panel>
+        ) : null}
       </ReactFlow>
     </div>
   )
