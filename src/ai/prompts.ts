@@ -48,6 +48,7 @@ Kind-specific data:
 - decision: {
     mode?: "branches" | "switch",
     switchField?: string,
+    branchHandleSide?: "bottom" | "right",
     branches: [{ id, label, condition?, color?, match?: { combinator, conditions: [{ field, operator, value?, value2? }] }, isDefault? }]
   }
   operators: eq, neq, gt, lt, between, contains, empty, in

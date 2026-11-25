@@ -1,6 +1,7 @@
 import type { Edge, Node } from '@xyflow/react'
 import { isContainerKind, type DiagramEdge, type DiagramNode, type NodeKind } from '../schema'
 import { DEFAULT_NODE_HEIGHT, DEFAULT_NODE_WIDTH } from './alignment'
+import { decisionSizeForBranches } from './decisionLayout'
 import { effectiveZIndex } from './zOrder'
 
 export type FlowNodeData = {
@@ -25,7 +26,16 @@ function defaultSizeFor(node: DiagramNode): { w: number; h: number } {
   if (isContainerKind(node.kind)) {
     const collapsed =
       (node.kind === 'group' || node.kind === 'section') && node.data.collapsed === true
-    return { w: collapsed ? 224 : node.kind === 'section' ? 480 : 360, h: collapsed ? 48 : node.kind === 'section' ? 320 : 240 }
+    return {
+      w: collapsed ? 280 : node.kind === 'section' ? 480 : 360,
+      h: collapsed ? 44 : node.kind === 'section' ? 320 : 240,
+    }
+  }
+  if (node.kind === 'decision') {
+    return decisionSizeForBranches(node.data.branches.length)
+  }
+  if (node.kind === 'sticky') {
+    return { w: 192, h: 160 }
   }
   if (node.kind === 'start' || node.kind === 'end') {
     return { w: 176, h: 64 }
@@ -70,10 +80,12 @@ export function toFlowNode(
       : {}),
     style: isContainer
       ? {
-          width: collapsed ? 224 : width,
-          height: collapsed ? 48 : height,
+          width: collapsed ? 280 : width,
+          height: collapsed ? 44 : height,
         }
-      : undefined,
+      : node.kind === 'decision' || node.kind === 'sticky'
+        ? { width, height }
+        : undefined,
     data: { diagramNode: node },
   }
 }
@@ -84,8 +96,9 @@ export function toFlowEdge(edge: DiagramEdge, selected: boolean): FlowEdge {
     type: 'flow',
     source: edge.source,
     target: edge.target,
-    sourceHandle: edge.sourceHandle,
-    targetHandle: edge.targetHandle,
+    // Side handles always have ids; fall back so legacy edges still render.
+    sourceHandle: edge.sourceHandle ?? 'bottom',
+    targetHandle: edge.targetHandle ?? 'top',
     label: edge.label,
     selected,
     data: { diagramEdge: edge },

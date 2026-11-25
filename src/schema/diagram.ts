@@ -112,6 +112,8 @@ export const DiagramNodeSchema = z.discriminatedUnion('kind', [
     data: z.object({
       mode: z.enum(['branches', 'switch']).optional(),
       switchField: z.string().max(200).optional(),
+      /** Where branch output handles sit; default bottom. */
+      branchHandleSide: z.enum(['bottom', 'right']).optional(),
       branches: z.array(BranchSchema).min(1),
     }),
   }),

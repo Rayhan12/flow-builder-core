@@ -176,8 +176,10 @@ export function createNodeOfKind(
       return {
         ...base,
         kind: 'decision',
+        size: { w: 256, h: 152 },
         data: {
           mode: 'branches',
+          branchHandleSide: 'bottom',
           branches: [
             { id: 'yes', label: 'Yes', color: 'green' },
             { id: 'no', label: 'No', color: 'red' },
@@ -235,6 +237,7 @@ export function createNodeOfKind(
       return {
         ...base,
         kind: 'sticky',
+        size: { w: 192, h: 160 },
         data: { text: 'Sticky note' },
       }
     case 'section':

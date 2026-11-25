@@ -7,6 +7,7 @@ import {
   type DiagramNode,
 } from '../../schema'
 import { ColourPicker } from '../ColourPicker'
+import { decisionSizeForBranches } from '../decisionLayout'
 import { newNodeId } from '../kinds'
 import { ConditionRows } from './ConditionBuilder'
 
@@ -32,7 +33,8 @@ export function DecisionBranchesEditor({ node, edges, onChange, onRemoveEdges }:
   } | null>(null)
 
   function commit(data: DecisionNode['data']) {
-    onChange({ ...node, data })
+    const size = decisionSizeForBranches(data.branches.length)
+    onChange({ ...node, data, size })
   }
 
   function moveBranch(index: number, dir: -1 | 1) {
@@ -107,6 +109,25 @@ export function DecisionBranchesEditor({ node, edges, onChange, onRemoveEdges }:
           <p className="field-help">Each branch is a case value of this field.</p>
         </label>
       ) : null}
+
+      <label className="field">
+        <span>Branch handles</span>
+        <select
+          aria-label="Branch handle side"
+          data-testid="branch-handle-side"
+          value={node.data.branchHandleSide ?? 'bottom'}
+          onChange={(e) =>
+            commit({
+              ...node.data,
+              branchHandleSide: e.target.value === 'right' ? 'right' : 'bottom',
+            })
+          }
+        >
+          <option value="bottom">Bottom</option>
+          <option value="right">Right</option>
+        </select>
+        <p className="field-help">Where each branch output leaves the card.</p>
+      </label>
 
       <div className="side-list decision-branch-list">
         {branches.map((branch, index) => (
