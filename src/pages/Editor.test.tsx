@@ -68,7 +68,7 @@ describe('EditorPage', () => {
 
     renderEditor()
 
-    expect(await screen.findByText('BNPL flow')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'BNPL flow' })).toBeInTheDocument()
     expect(screen.getByLabelText('Node palette')).toBeInTheDocument()
     expect(screen.getByText('No node selected')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
@@ -93,7 +93,7 @@ describe('EditorPage', () => {
     const user = userEvent.setup()
     renderEditor()
 
-    expect(await screen.findByText('Draft')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Draft' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /Decision/i }))
 
     await waitFor(() => {

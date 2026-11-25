@@ -604,7 +604,7 @@ function EditorInner() {
       </header>
 
       <div className={`editor-body ${assistantOpen ? 'has-ai-panel' : ''}`}>
-        <NodePalette onAdd={onAddKind} />
+        <NodePalette onAdd={onAddKind} diagramTitle={diagram.title} />
         <Canvas
           gridMode={gridMode}
           onDropKind={onDropKind}
