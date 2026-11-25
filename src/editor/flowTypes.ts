@@ -8,17 +8,40 @@ export type FlowNodeData = {
 export type FlowNode = Node<FlowNodeData, NodeKind>
 export type FlowEdge = Edge<{ diagramEdge: DiagramEdge }>
 
-export function toFlowNode(node: DiagramNode, selected: boolean): FlowNode {
+export function absolutePosition(
+  node: DiagramNode,
+  nodes: DiagramNode[],
+): { x: number; y: number } {
+  if (!node.parentId) return { ...node.position }
+  const parent = nodes.find((n) => n.id === node.parentId)
+  if (!parent) return { ...node.position }
+  const parentAbs = absolutePosition(parent, nodes)
+  return { x: node.position.x + parentAbs.x, y: node.position.y + parentAbs.y }
+}
+
+export function toFlowNode(
+  node: DiagramNode,
+  selected: boolean,
+  options: { parentCollapsed?: boolean } = {},
+): FlowNode {
   const isGroup = node.kind === 'group'
+  const collapsed = isGroup && node.data.collapsed === true
   return {
     id: node.id,
     type: node.kind,
     position: node.position,
     selected,
     parentId: node.parentId,
-    zIndex: isGroup ? 0 : 1,
-    style: isGroup && node.size
-      ? { width: node.size.w, height: node.size.h }
+    extent: node.parentId ? 'parent' : undefined,
+    expandParent: Boolean(node.parentId),
+    hidden: options.parentCollapsed === true,
+    draggable: !options.parentCollapsed,
+    zIndex: isGroup ? -1 : 1,
+    style: isGroup
+      ? {
+          width: collapsed ? 220 : (node.size?.w ?? 360),
+          height: collapsed ? 48 : (node.size?.h ?? 240),
+        }
       : undefined,
     data: { diagramNode: node },
   }

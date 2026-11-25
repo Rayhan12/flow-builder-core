@@ -58,4 +58,37 @@ describe('editorStore', () => {
     expect(useEditorStore.getState().diagram?.nodes).toHaveLength(1)
     expect(useEditorStore.getState().diagram?.edges).toHaveLength(0)
   })
+
+  it('nests a node in a group with relative position', () => {
+    useEditorStore.getState().load(createEmptyDiagram('d1'), 0)
+    const groupId = useEditorStore.getState().addNode('group', { x: 100, y: 50 })!
+    const stepId = useEditorStore.getState().addNode('step', { x: 140, y: 90 })!
+
+    useEditorStore.getState().setNodeParent(stepId, groupId, { x: 140, y: 90 })
+    const step = useEditorStore.getState().diagram?.nodes.find((n) => n.id === stepId)
+    expect(step?.parentId).toBe(groupId)
+    expect(step?.position).toEqual({ x: 40, y: 40 })
+
+    useEditorStore.getState().setNodeParent(stepId, undefined, { x: 200, y: 120 })
+    const detached = useEditorStore.getState().diagram?.nodes.find((n) => n.id === stepId)
+    expect(detached?.parentId).toBeUndefined()
+    expect(detached?.position).toEqual({ x: 200, y: 120 })
+  })
+
+  it('replaces diagram content on import while keeping id', () => {
+    useEditorStore.getState().load(createEmptyDiagram('d_keep', 'Old'), 3)
+    useEditorStore.getState().addNode('step', { x: 0, y: 0 })
+
+    useEditorStore.getState().replaceDiagramContent({
+      ...createEmptyDiagram('d_imported', 'Imported flow'),
+      nodes: [],
+      edges: [],
+    })
+
+    const d = useEditorStore.getState().diagram
+    expect(d?.id).toBe('d_keep')
+    expect(d?.title).toBe('Imported flow')
+    expect(d?.nodes).toHaveLength(0)
+    expect(useEditorStore.getState().saveStatus).toBe('dirty')
+  })
 })

@@ -1,8 +1,11 @@
 import { Plus, Trash2, X } from 'lucide-react'
 import type { DiagramNode } from '../../schema'
 import { useEditorStore } from '../../store/editorStore'
-import { DATA_COLORS, resolveColor } from '../colors'
+import { ColourPicker } from '../ColourPicker'
+import { resolveColor } from '../colors'
+import { IconPicker } from '../IconPicker'
 import { newNodeId } from '../kinds'
+import { absolutePosition } from '../flowTypes'
 
 export function NodeSidePanel() {
   const diagram = useEditorStore((s) => s.diagram)
@@ -10,6 +13,7 @@ export function NodeSidePanel() {
   const replaceNode = useEditorStore((s) => s.replaceNode)
   const updateNode = useEditorStore((s) => s.updateNode)
   const removeNodes = useEditorStore((s) => s.removeNodes)
+  const setNodeParent = useEditorStore((s) => s.setNodeParent)
   const clearSelection = useEditorStore((s) => s.clearSelection)
 
   const node =
@@ -32,10 +36,13 @@ export function NodeSidePanel() {
     updateNode(node!.id, { [key]: value } as Partial<DiagramNode>)
   }
 
+  const groups =
+    diagram?.nodes.filter((n) => n.kind === 'group' && n.id !== node.id) ?? []
+
   return (
     <aside className="side-panel" aria-label="Node details">
       <div className="side-panel-header">
-        <h2>Node</h2>
+        <h2>{node.kind === 'group' ? 'Group' : 'Node'}</h2>
         <button
           type="button"
           className="btn btn-ghost btn-icon"
@@ -65,28 +72,54 @@ export function NodeSidePanel() {
             onChange={(e) => setField('description', e.target.value || undefined)}
           />
         </label>
+        {node.kind !== 'group' && groups.length > 0 ? (
+          <label className="field">
+            <span>Parent group</span>
+            <select
+              value={node.parentId ?? ''}
+              onChange={(e) => {
+                const next = e.target.value || undefined
+                const abs = absolutePosition(node, diagram!.nodes)
+                setNodeParent(node.id, next, abs)
+              }}
+            >
+              <option value="">None</option>
+              {groups.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.kind === 'group' ? g.data.label : g.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
       </section>
 
       <section className="side-section">
         <h3 className="side-section-label">Look</h3>
-        <div className="color-swatches" role="listbox" aria-label="Colour">
-          {DATA_COLORS.map((c) => {
-            const active = (node.color ?? '') === c.key
-            return (
-              <button
-                key={c.key}
-                type="button"
-                role="option"
-                aria-selected={active}
-                className={`color-swatch ${active ? 'is-active' : ''}`}
-                style={{ background: c.solid }}
-                title={c.label}
-                aria-label={c.label}
-                onClick={() => setField('color', c.key)}
-              />
-            )
-          })}
-        </div>
+        <label className="field">
+          <span>Icon</span>
+          <IconPicker
+            value={node.icon}
+            onChange={(name) => setField('icon', name)}
+          />
+        </label>
+        <label className="field">
+          <span>Colour</span>
+          <ColourPicker
+            value={node.color}
+            onChange={(color) => {
+              if (node.kind === 'group') {
+                replaceNode({
+                  ...node,
+                  color,
+                  data: { ...node.data, color },
+                })
+              } else {
+                setField('color', color)
+              }
+            }}
+          />
+        </label>
       </section>
 
       <KindDetails node={node} replaceNode={replaceNode} />
@@ -98,7 +131,7 @@ export function NodeSidePanel() {
           onClick={() => removeNodes([node.id])}
         >
           <Trash2 size={16} />
-          Delete node
+          Delete {node.kind === 'group' ? 'group' : 'node'}
         </button>
       </section>
     </aside>
@@ -380,6 +413,7 @@ function KindDetails({
       )
     case 'group': {
       const color = resolveColor(node.data.color ?? node.color, 'gray')
+      const collapsed = node.data.collapsed === true
       return (
         <section className="side-section">
           <h3 className="side-section-label">Details</h3>
@@ -396,8 +430,21 @@ function KindDetails({
               }
             />
           </label>
+          <label className="field checkbox-field">
+            <input
+              type="checkbox"
+              checked={collapsed}
+              onChange={(e) =>
+                replaceNode({
+                  ...node,
+                  data: { ...node.data, collapsed: e.target.checked },
+                })
+              }
+            />
+            <span>Collapsed</span>
+          </label>
           <p className="side-hint" style={{ color: color.solid }}>
-            Groups hold related nodes. Drag nodes onto the group in a later update.
+            Drag nodes onto this group to nest them, or pick a parent group in the panel.
           </p>
         </section>
       )

@@ -36,9 +36,10 @@ export function FlowNodeShell({
   })
 
   if (groupStyle) {
+    const collapsed = node.kind === 'group' && node.data.collapsed === true
     return (
       <div
-        className={`flow-group ${selected ? 'is-selected' : ''}`}
+        className={`flow-group ${selected ? 'is-selected' : ''} ${collapsed ? 'is-collapsed' : ''}`}
         style={
           {
             '--node-solid': color.solid,
@@ -48,8 +49,11 @@ export function FlowNodeShell({
           } as CSSProperties
         }
       >
-        <div className="flow-group-label">
-          {node.kind === 'group' ? node.data.label : node.label}
+        <div className="flow-group-label-row">
+          {children}
+          <div className="flow-group-label">
+            {node.kind === 'group' ? node.data.label : node.label}
+          </div>
         </div>
         {showTarget ? <Handle type="target" position={Position.Top} className="flow-handle" /> : null}
         {showSource ? <Handle type="source" position={Position.Bottom} className="flow-handle" /> : null}

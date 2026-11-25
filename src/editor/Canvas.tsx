@@ -5,6 +5,7 @@ import {
   MarkerType,
   MiniMap,
   ReactFlow,
+  useReactFlow,
   type Connection,
   type EdgeChangeset,
   type NodeChangeset,
@@ -12,6 +13,7 @@ import {
   type Viewport,
 } from '@xyflow/react'
 import { useCallback, useMemo, useRef, type DragEvent } from 'react'
+import type { DiagramNode } from '../schema'
 import { useEditorStore } from '../store/editorStore'
 import { edgeTypes } from './edges/edgeTypes'
 import { toFlowEdge, toFlowNode, type FlowEdge, type FlowNode } from './flowTypes'
@@ -23,31 +25,93 @@ type Props = {
   onDropKind?: (kind: string, position: { x: number; y: number }) => void
 }
 
+function findGroupAtPoint(
+  nodes: DiagramNode[],
+  point: { x: number; y: number },
+  excludeId?: string,
+): DiagramNode | undefined {
+  const groups = nodes.filter(
+    (n) => n.kind === 'group' && n.id !== excludeId && n.data.collapsed !== true,
+  )
+  // Prefer the top-most (last) group that contains the point
+  for (let i = groups.length - 1; i >= 0; i -= 1) {
+    const group = groups[i]
+    const w = group.size?.w ?? 360
+    const h = group.size?.h ?? 240
+    if (
+      point.x >= group.position.x &&
+      point.x <= group.position.x + w &&
+      point.y >= group.position.y &&
+      point.y <= group.position.y + h
+    ) {
+      return group
+    }
+  }
+  return undefined
+}
+
+function worldPosition(node: DiagramNode, nodes: DiagramNode[]): { x: number; y: number } {
+  if (!node.parentId) return { ...node.position }
+  const parent = nodes.find((n) => n.id === node.parentId)
+  if (!parent) return { ...node.position }
+  return {
+    x: node.position.x + parent.position.x,
+    y: node.position.y + parent.position.y,
+  }
+}
+
 export function Canvas({ onDropKind }: Props) {
   const diagram = useEditorStore((s) => s.diagram)
   const selectedNodeIds = useEditorStore((s) => s.selectedNodeIds)
   const selectedEdgeIds = useEditorStore((s) => s.selectedEdgeIds)
   const moveNodes = useEditorStore((s) => s.moveNodes)
+  const resizeNode = useEditorStore((s) => s.resizeNode)
   const removeNodes = useEditorStore((s) => s.removeNodes)
   const removeEdges = useEditorStore((s) => s.removeEdges)
   const addEdgeFromConnection = useEditorStore((s) => s.addEdgeFromConnection)
   const setSelection = useEditorStore((s) => s.setSelection)
   const setViewport = useEditorStore((s) => s.setViewport)
+  const setNodeParent = useEditorStore((s) => s.setNodeParent)
+  const { screenToFlowPosition } = useReactFlow()
 
-  const dragStartPositions = useRef<Map<string, { x: number; y: number }>>(new Map())
   const wrapperRef = useRef<HTMLDivElement>(null)
+
+  const collapsedParents = useMemo(() => {
+    const set = new Set<string>()
+    if (!diagram) return set
+    for (const n of diagram.nodes) {
+      if (n.kind === 'group' && n.data.collapsed) set.add(n.id)
+    }
+    return set
+  }, [diagram])
 
   const nodes: FlowNode[] = useMemo(() => {
     if (!diagram) return []
     const selected = new Set(selectedNodeIds)
-    return diagram.nodes.map((n) => toFlowNode(n, selected.has(n.id)))
-  }, [diagram, selectedNodeIds])
+    const ordered = [...diagram.nodes].sort((a, b) => {
+      const aGroup = a.kind === 'group' ? 0 : 1
+      const bGroup = b.kind === 'group' ? 0 : 1
+      return aGroup - bGroup
+    })
+    return ordered.map((n) =>
+      toFlowNode(n, selected.has(n.id), {
+        parentCollapsed: Boolean(n.parentId && collapsedParents.has(n.parentId)),
+      }),
+    )
+  }, [diagram, selectedNodeIds, collapsedParents])
 
   const edges: FlowEdge[] = useMemo(() => {
     if (!diagram) return []
     const selected = new Set(selectedEdgeIds)
-    return diagram.edges.map((e) => toFlowEdge(e, selected.has(e.id)))
-  }, [diagram, selectedEdgeIds])
+    const hidden = new Set(
+      diagram.nodes
+        .filter((n) => n.parentId && collapsedParents.has(n.parentId))
+        .map((n) => n.id),
+    )
+    return diagram.edges
+      .filter((e) => !hidden.has(e.source) && !hidden.has(e.target))
+      .map((e) => toFlowEdge(e, selected.has(e.id)))
+  }, [diagram, selectedEdgeIds, collapsedParents])
 
   const onNodesChange = useCallback(
     (changes: NodeChangeset<FlowNode>) => {
@@ -69,8 +133,16 @@ export function Canvas({ onDropKind }: Props) {
           true,
         )
       }
+
+      for (const change of changes.getByType('dimensions')) {
+        if (!change.dimensions) continue
+        const { width, height } = change.dimensions
+        if (width <= 0 || height <= 0) continue
+        // Record history only when resize finishes
+        resizeNode(change.id, { w: width, h: height }, change.resizing !== true)
+      }
     },
-    [moveNodes, removeNodes],
+    [moveNodes, removeNodes, resizeNode],
   )
 
   const onEdgesChange = useCallback(
@@ -103,9 +175,28 @@ export function Canvas({ onDropKind }: Props) {
     [setSelection],
   )
 
-  const onNodeDragStart = useCallback((_: unknown, node: FlowNode) => {
-    dragStartPositions.current.set(node.id, { ...node.position })
-  }, [])
+  const onNodeDragStop = useCallback(
+    (_: unknown, node: FlowNode) => {
+      const d = useEditorStore.getState().diagram
+      if (!d) return
+      const diagramNode = d.nodes.find((n) => n.id === node.id)
+      if (!diagramNode || diagramNode.kind === 'group') return
+
+      const updated: DiagramNode = { ...diagramNode, position: node.position }
+      const world = worldPosition(updated, [
+        ...d.nodes.filter((n) => n.id !== node.id),
+        updated,
+      ])
+
+      const target = findGroupAtPoint(d.nodes, world, node.id)
+      const nextParentId = target?.id
+      const currentParentId = diagramNode.parentId
+
+      if (nextParentId === currentParentId) return
+      setNodeParent(node.id, nextParentId, world)
+    },
+    [setNodeParent],
+  )
 
   const onViewportChange = useCallback(
     (viewport: Viewport) => {
@@ -123,20 +214,11 @@ export function Canvas({ onDropKind }: Props) {
     (event: DragEvent) => {
       event.preventDefault()
       const kind = event.dataTransfer.getData('application/flow-builder-kind')
-      if (!kind || !onDropKind || !wrapperRef.current) return
-      const bounds = wrapperRef.current.getBoundingClientRect()
-      const position = {
-        x: event.clientX - bounds.left - 110,
-        y: event.clientY - bounds.top - 40,
-      }
-      // Convert roughly using current viewport
-      const vp = diagram?.viewport ?? { x: 0, y: 0, zoom: 1 }
-      onDropKind(kind, {
-        x: (position.x - vp.x) / vp.zoom,
-        y: (position.y - vp.y) / vp.zoom,
-      })
+      if (!kind || !onDropKind) return
+      const position = screenToFlowPosition({ x: event.clientX, y: event.clientY })
+      onDropKind(kind, { x: position.x - 110, y: position.y - 40 })
     },
-    [diagram?.viewport, onDropKind],
+    [onDropKind, screenToFlowPosition],
   )
 
   if (!diagram) return null
@@ -152,10 +234,15 @@ export function Canvas({ onDropKind }: Props) {
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         onSelectionChange={onSelectionChange}
-        onNodeDragStart={onNodeDragStart}
+        onNodeDragStop={onNodeDragStop}
         onViewportChange={onViewportChange}
         defaultViewport={diagram.viewport}
-        fitView={diagram.nodes.length > 0 && diagram.nodes.every((n) => n.position.x === 0 && n.position.y === 0) === false ? undefined : diagram.nodes.length === 0}
+        fitView={
+          diagram.nodes.length > 0 &&
+          diagram.nodes.every((n) => n.position.x === 0 && n.position.y === 0) === false
+            ? undefined
+            : diagram.nodes.length === 0
+        }
         snapToGrid
         snapGrid={[16, 16]}
         deleteKeyCode={['Backspace', 'Delete']}

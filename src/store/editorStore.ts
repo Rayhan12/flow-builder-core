@@ -41,6 +41,14 @@ type EditorState = {
   replaceNode: (node: DiagramNode) => void
   removeNodes: (ids: string[]) => void
   moveNodes: (updates: Array<{ id: string; position: { x: number; y: number } }>, recordHistory: boolean) => void
+  resizeNode: (id: string, size: { w: number; h: number }, recordHistory?: boolean) => void
+  setNodeParent: (
+    id: string,
+    parentId: string | undefined,
+    absolutePosition: { x: number; y: number },
+  ) => void
+  applyNodeLayout: (nodes: DiagramNode[]) => void
+  replaceDiagramContent: (diagram: Diagram) => void
 
   addEdgeFromConnection: (conn: {
     source: string
@@ -236,6 +244,67 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         }),
         { record: recordHistory },
       )
+    }),
+
+  resizeNode: (id, size, recordHistory = true) =>
+    set((state) =>
+      withHistory(
+        state,
+        (d) => ({
+          ...d,
+          nodes: d.nodes.map((n) => (n.id === id ? { ...n, size } : n)),
+        }),
+        { record: recordHistory },
+      ),
+    ),
+
+  setNodeParent: (id, parentId, absolutePosition) =>
+    set((state) =>
+      withHistory(state, (d) => {
+        const node = d.nodes.find((n) => n.id === id)
+        if (!node || node.kind === 'group') return d
+        if (parentId === id) return d
+
+        let position = absolutePosition
+        if (parentId) {
+          const parent = d.nodes.find((n) => n.id === parentId && n.kind === 'group')
+          if (!parent) return d
+          position = {
+            x: absolutePosition.x - parent.position.x,
+            y: absolutePosition.y - parent.position.y,
+          }
+        }
+
+        return {
+          ...d,
+          nodes: d.nodes.map((n) =>
+            n.id === id
+              ? ({
+                  ...n,
+                  parentId: parentId || undefined,
+                  position,
+                } as DiagramNode)
+              : n,
+          ),
+        }
+      }),
+    ),
+
+  applyNodeLayout: (nodes) =>
+    set((state) =>
+      withHistory(state, (d) => ({
+        ...d,
+        nodes: structuredClone(nodes),
+      })),
+    ),
+
+  replaceDiagramContent: (diagram) =>
+    set((state) => {
+      if (!state.diagram) return {}
+      return withHistory(state, () => ({
+        ...diagram,
+        id: state.diagram!.id,
+      }))
     }),
 
   addEdgeFromConnection: (conn) => {
