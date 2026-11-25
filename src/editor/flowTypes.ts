@@ -39,7 +39,7 @@ export function toFlowNode(
     zIndex: isGroup ? -1 : 1,
     style: isGroup
       ? {
-          width: collapsed ? 220 : (node.size?.w ?? 360),
+          width: collapsed ? 224 : (node.size?.w ?? 360),
           height: collapsed ? 48 : (node.size?.h ?? 240),
         }
       : undefined,

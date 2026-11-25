@@ -13,6 +13,7 @@ type Props = NodeProps<FlowNode> & {
   compact?: boolean
   noteStyle?: boolean
   groupStyle?: boolean
+  invalid?: boolean
 }
 
 function FlowNodeShellInner({
@@ -25,13 +26,14 @@ function FlowNodeShellInner({
   compact = false,
   noteStyle = false,
   groupStyle = false,
+  invalid = false,
 }: Props) {
   const node = data.diagramNode
   const meta = KIND_META[node.kind]
   const color = resolveColor(node.color, meta.defaultColor)
   const iconEl = createElement(getLucideIcon(node.icon, meta.icon), {
-    size: 14,
-    color: color.solid,
+    size: 16,
+    color: selected && !noteStyle && !groupStyle ? '#ffffff' : color.solid,
     strokeWidth: 2,
   })
 
@@ -68,6 +70,7 @@ function FlowNodeShellInner({
         compact ? 'flow-node-compact' : '',
         noteStyle ? 'flow-node-note' : '',
         selected ? 'is-selected' : '',
+        invalid ? 'is-invalid' : '',
       ]
         .filter(Boolean)
         .join(' ')}
@@ -78,14 +81,17 @@ function FlowNodeShellInner({
         } as CSSProperties
       }
     >
+      {invalid ? <span className="flow-node-error-dot" aria-hidden /> : null}
       {showTarget ? <Handle type="target" position={Position.Top} className="flow-handle" /> : null}
 
       <div className="flow-node-header">
         <span className="flow-node-icon" aria-hidden>
           {iconEl}
         </span>
-        <span className="flow-node-label">{node.label}</span>
-        <span className="flow-node-kind">{meta.label}</span>
+        <div className="flow-node-title-block">
+          <span className="flow-node-kind">{meta.label}</span>
+          <span className="flow-node-label">{node.label}</span>
+        </div>
       </div>
 
       {node.description ? <p className="flow-node-desc">{node.description}</p> : null}
@@ -98,7 +104,10 @@ function FlowNodeShellInner({
             const branchColor = resolveColor(branch.color, 'amber')
             return (
               <div key={branch.id} className="flow-branch" style={{ left: `${left}%` }}>
-                <span className="flow-branch-chip" style={{ borderColor: branchColor.solid, color: branchColor.solid }}>
+                <span
+                  className="flow-branch-chip"
+                  style={{ borderColor: branchColor.solid, color: branchColor.solid }}
+                >
                   {branch.label}
                 </span>
                 <Handle

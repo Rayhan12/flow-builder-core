@@ -5,12 +5,21 @@ import { FlowNodeShell } from './FlowNodeShell'
 
 function MappingNodeInner(props: NodeProps<FlowNode>) {
   const node = props.data.diagramNode
-  const count = node.kind === 'mapping' ? node.data.mappings.length : 0
+  const mappings = node.kind === 'mapping' ? node.data.mappings : []
+  const first = mappings.find((m) => m.from.trim() || m.to.trim())
   return (
     <FlowNodeShell {...props}>
-      <p className="flow-node-meta">
-        {count} {count === 1 ? 'mapping' : 'mappings'}
-      </p>
+      <div className="flow-node-kv">
+        {first ? (
+          <span className="flow-node-kv-row">
+            {first.from || '...'} → {first.to || '...'}
+          </span>
+        ) : (
+          <span className="flow-node-kv-row">
+            {mappings.length} {mappings.length === 1 ? 'mapping' : 'mappings'}
+          </span>
+        )}
+      </div>
     </FlowNodeShell>
   )
 }
