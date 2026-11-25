@@ -9,11 +9,12 @@ async function signUpAndOpenEditor(page: Page) {
   await page.getByLabel('Email').fill(email)
   await page.getByLabel('Password').fill(password)
   await page.getByRole('button', { name: 'Create account' }).click()
-  await expect(page.getByRole('heading', { name: 'Your diagrams' })).toBeVisible({
+  await expect(page.getByRole('heading', { level: 1 })).toContainText(/Good (morning|afternoon|evening)/, {
     timeout: 15_000,
   })
+  await page.locator('.project-card-link', { hasText: 'My first project' }).click({ timeout: 15_000 })
   await page.getByRole('button', { name: 'New diagram' }).first().click()
-  await page.waitForURL(/\/diagrams\//, { timeout: 15_000 })
+  await page.waitForURL(/\/p\/[^/]+\/d\//, { timeout: 15_000 })
   await expect(page.getByLabel('Node palette')).toBeVisible({ timeout: 15_000 })
 }
 

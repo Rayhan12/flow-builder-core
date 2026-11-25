@@ -15,7 +15,6 @@ import {
   Sun,
   Undo2,
   Upload,
-  Workflow,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react'
@@ -25,7 +24,6 @@ import { AssistantPanel } from '../ai/AssistantPanel'
 import { useAuth } from '../auth/useAuth'
 import { EmptyState } from '../components/EmptyState'
 import { getDiagram, saveDiagram } from '../data/diagrams'
-import { ensureDefaultProject } from '../data/projects'
 import {
   cycleGridMode,
   gridModeLabel,
@@ -72,11 +70,10 @@ export function EditorPage() {
 }
 
 function EditorInner() {
-  const { projectId: routeProjectId, diagramId } = useParams<{
+  const { projectId, diagramId } = useParams<{
     projectId?: string
     diagramId?: string
   }>()
-  const [projectId, setProjectId] = useState<string | null>(routeProjectId ?? null)
   const { user } = useAuth()
   const { theme, toggleTheme } = useTheme()
   const { fitView, zoomIn, zoomOut } = useReactFlow()
@@ -119,22 +116,6 @@ function EditorInner() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const ioMenuRef = useRef<HTMLDivElement>(null)
   const uid = user?.uid
-
-  useEffect(() => {
-    if (routeProjectId) {
-      setProjectId(routeProjectId)
-      return
-    }
-    if (!uid) return
-    let cancelled = false
-    void (async () => {
-      const project = await ensureDefaultProject(uid)
-      if (!cancelled) setProjectId(project.id)
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [uid, routeProjectId])
 
   const sizeWarning = useMemo(() => {
     if (!diagram) return null
@@ -391,8 +372,8 @@ function EditorInner() {
           title={loadError ?? 'Diagram not found'}
           hint="Go back to your diagrams list and try again."
           action={
-            <Link to="/" className="btn btn-primary">
-              Back to diagrams
+            <Link to={projectId ? `/p/${projectId}` : '/'} className="btn btn-primary">
+              Back to project
             </Link>
           }
         />
@@ -404,10 +385,13 @@ function EditorInner() {
     <div className="editor-shell">
       <header className="editor-topbar">
         <div className="editor-topbar-left">
-          <Link to="/" className="btn btn-ghost btn-icon" aria-label="Back to diagrams">
+          <Link
+            to={projectId ? `/p/${projectId}` : '/'}
+            className="btn btn-ghost btn-icon"
+            aria-label="Back to project"
+          >
             <ArrowLeft size={18} />
           </Link>
-          <Workflow className="brand-icon" aria-hidden size={20} strokeWidth={2} />
           {editingTitle ? (
             <input
               className="editor-title-input"
@@ -623,9 +607,6 @@ function EditorInner() {
             >
               {theme === 'light' ? <Moon size={16} /> : <Sun size={16} />}
             </button>
-            <Link to="/settings" className="btn btn-ghost">
-              Settings
-            </Link>
           </div>
         </div>
       </header>

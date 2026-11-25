@@ -16,10 +16,6 @@ vi.mock('../data/diagrams', () => ({
   saveDiagram: (...args: unknown[]) => saveDiagram(...args),
 }))
 
-vi.mock('../data/projects', () => ({
-  ensureDefaultProject: vi.fn().mockResolvedValue({ id: 'p1', name: 'My first project' }),
-}))
-
 const authValue: AuthContextValue = {
   user: { uid: 'u1', email: 'a@b.com' } as AuthContextValue['user'],
   loading: false,
@@ -32,9 +28,9 @@ function renderEditor() {
   return render(
     <ThemeProvider>
       <AuthContext.Provider value={authValue}>
-        <MemoryRouter initialEntries={['/diagrams/d1']}>
+        <MemoryRouter initialEntries={['/p/p1/d/d1']}>
           <Routes>
-            <Route path="/diagrams/:diagramId" element={<EditorPage />} />
+            <Route path="/p/:projectId/d/:diagramId" element={<EditorPage />} />
           </Routes>
         </MemoryRouter>
       </AuthContext.Provider>
