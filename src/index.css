@@ -2,8 +2,15 @@
 
 :root,
 [data-theme='light'] {
-  --color-accent: #ff5900;
-  --color-accent-soft: #fff1ea;
+  --color-accent: #0f766e;
+  --color-accent-hover: #115e59;
+  --color-accent-pressed: #134e4a;
+  --color-accent-bright: #0d9488;
+  --color-accent-subtle: #ccfbf1;
+  --color-accent-tint: #f0fdfa;
+  --color-on-accent: #ffffff;
+  --color-focus-ring: rgba(13, 148, 136, 0.35);
+  --color-accent-soft: #ccfbf1;
   --color-text: #000000;
   --color-text-2: #60646c;
   --color-text-3: #6f737b;
@@ -37,8 +44,15 @@
 }
 
 [data-theme='dark'] {
-  --color-accent: #ff6a1a;
-  --color-accent-soft: #3a1e10;
+  --color-accent: #14b8a6;
+  --color-accent-hover: #0d9488;
+  --color-accent-pressed: #0f766e;
+  --color-accent-bright: #2dd4bf;
+  --color-accent-subtle: #042f2e;
+  --color-accent-tint: #042f2e;
+  --color-on-accent: #ffffff;
+  --color-focus-ring: rgba(45, 212, 191, 0.35);
+  --color-accent-soft: #042f2e;
   --color-text: #f3f3f7;
   --color-text-2: #b9bbc6;
   --color-text-3: #8b8d98;
@@ -212,11 +226,15 @@ input {
 
 .btn-primary {
   background: var(--color-accent);
-  color: #fff;
+  color: var(--color-on-accent);
 }
 
 .btn-primary:hover:not(:disabled) {
-  filter: brightness(0.96);
+  background: var(--color-accent-hover);
+}
+
+.btn-primary:active:not(:disabled) {
+  background: var(--color-accent-pressed);
 }
 
 .btn-secondary {

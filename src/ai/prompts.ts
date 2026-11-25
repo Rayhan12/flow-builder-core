@@ -13,7 +13,7 @@ const SCHEMA_HINT = `Diagram JSON schema v1:
       "label": string (max 200),
       "description": optional string,
       "icon": optional lucide icon name,
-      "color": optional palette key (slate|blue|violet|amber|teal|green|red|pink|yellow|gray) or hex,
+      "color": optional palette key (slate|blue|violet|amber|indigo|green|red|pink|yellow|gray) or hex,
       "position": { "x": number, "y": number },
       "size": optional { "w": number, "h": number },
       "parentId": optional group node id,

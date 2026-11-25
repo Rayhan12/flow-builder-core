@@ -14,10 +14,30 @@ We use it as a reference only: tokens and patterns, not brand assets. No Brex lo
 
 Why this style: it is a calm, light, flat "financial workbench" look. Lots of white, hairline borders, one accent colour for the main action. That suits a decision-flow editor where the flow itself, not the chrome, should carry the colour.
 
+## 0b. App chrome layout (Taktile, not Linear)
+
+**Left app navigation**
+- Toggles between a slim 56px icon rail and a 248px expanded panel. State persists in `localStorage`. Keyboard shortcuts: `[` when not typing in a field, and Cmd/Ctrl+`\`.
+- Items: Home, Projects (expandable tree), Recent, AI Create, Templates (only when templates exist), Settings, and account with Sign out at the bottom.
+- In rail mode, items show tooltips. The active item uses a single accent marker (not Linear's purple glow).
+- Crisp 1px borders, compact dense rows, small uppercase section labels.
+
+**Editor layout**
+- The app nav rail stays visible (collapsed by default in the editor). The node palette remains its own panel next to the canvas, separate from app nav.
+
+**Visual language**
+- Inter type, small uppercase nav labels, 1px faint borders, small radii, soft shadows on floating surfaces only.
+- Stacked content sections and cards on dashboard and project pages.
+- Node cards with 48px pastel icon tiles and kind label above title.
+- Accordion config panels with bordered list-row cards; dense tables and lists.
+
+**Explicitly not Linear**
+- No purple chrome, no oversized rounded pills, no soft pastel sidebar wash.
+
 ## 1. Principles
 
 1. The canvas is the hero. App chrome (top bar, panels, palette) stays neutral and quiet.
-2. One accent (Ember) for the single primary action in each area: "New diagram", "Save", "Apply changes", "Send".
+2. One accent (Teal) for the single primary action in each area: "New diagram", "Save", "Apply changes", "Send".
 3. Flat surfaces. Elevation comes from Paper on Fog contrast and 1px borders, not shadows. Only floating things (menus, dialogs, toasts, the minimap) get one soft shadow.
 4. Left-aligned text, plain short labels, generous spacing.
 5. Node colour coding uses a separate muted data palette (section 3). This is our one planned change from the reference, which allows only one accent, because a flow editor needs colour groups.
@@ -26,8 +46,15 @@ Why this style: it is a calm, light, flat "financial workbench" look. Lots of wh
 
 | Token | Light | Dark | Use |
 |---|---|---|---|
-| `--color-accent` | `#ff5900` (Ember) | `#ff6a1a` | Primary button fill, active tab underline, focus ring, selected node outline |
-| `--color-accent-soft` | `#fff1ea` | `#3a1e10` | Accent hover wash, selected row |
+| `--color-accent` | `#0f766e` | `#14b8a6` | Primary button fill, active tab underline, selected node outline |
+| `--color-accent-hover` | `#115e59` | `#0d9488` | Primary button hover |
+| `--color-accent-pressed` | `#134e4a` | `#0f766e` | Primary button pressed |
+| `--color-accent-bright` | `#0d9488` | `#2dd4bf` | Shapes, icons on accent |
+| `--color-accent-subtle` | `#ccfbf1` | `#042f2e` | Selected row, soft highlight |
+| `--color-accent-tint` | `#f0fdfa` | `#042f2e` | Light accent wash backgrounds |
+| `--color-on-accent` | `#ffffff` | `#ffffff` | Text on accent fills |
+| `--color-focus-ring` | `rgba(13, 148, 136, 0.35)` | `rgba(45, 212, 191, 0.35)` | Focus rings |
+| `--color-accent-soft` | `#ccfbf1` (alias of subtle) | `#042f2e` | Back-compat alias for subtle |
 | `--color-text` | `#000000` (Ink) | `#f3f3f7` | Headings, main text |
 | `--color-text-2` | `#60646c` (Graphite) | `#b9bbc6` | Body text, descriptions |
 | `--color-text-3` | `#6f737b` (Pewter) | `#8b8d98` | Helper text, captions |
@@ -52,14 +79,14 @@ Muted, readable on white. Each colour has a solid (icon, left stripe, edge) and 
 | `blue` | `#2e6be6` | `#eef4ff` | integration / API call |
 | `violet` | `#7a5af8` | `#f4f3ff` | data mapping |
 | `amber` | `#dc8a06` | `#fef6e7` | decision |
-| `teal` | `#0e9384` | `#effcf9` | rule or score |
+| `indigo` | `#4f46e5` | `#eef2ff` | rule or score |
 | `green` | `#12b76a` | `#ecfdf3` | start |
 | `red` | `#e5484d` | `#fff0f0` | end / reject |
 | `pink` | `#dd2590` | `#fdf2fa` | custom |
 | `yellow` | `#ca8a04` | `#fefce8` | note |
 | `gray` | `#98a2b3` | `#f9fafb` | group default |
 
-Users can also pick a custom hex. Dark mode uses the same solids and tints at 16% opacity over `--color-surface`.
+Users can also pick a custom hex. Dark mode uses the same solids and tints at 16% opacity over `--color-surface`. Do not use teal or cyan in the active palette. Saved diagrams that still store the legacy `teal` key resolve to indigo at runtime.
 
 ## 4. Typography
 
@@ -90,7 +117,7 @@ Users can also pick a custom hex. Dark mode uses the same solids and tints at 16
 ## 6. Component patterns
 
 **Buttons** (height 36px, radius 12px, 14px/500, padding 0 16px)
-- Primary: Ember fill, white text. One per area.
+- Primary: Teal fill (`--color-accent`), `--color-on-accent` text. One per area. Hover and pressed use accent-hover and accent-pressed tokens.
 - Secondary: Paper fill, 1px border, Ink text.
 - Ghost: no border, Graphite text, Fog hover.
 - Danger: red text ghost, red fill only in confirm dialogs.
@@ -139,8 +166,15 @@ Text contrast at least 4.5:1. Every icon button has an `aria-label` and tooltip.
 
 ```css
 :root {
-  --color-accent: #ff5900;
-  --color-accent-soft: #fff1ea;
+  --color-accent: #0f766e;
+  --color-accent-hover: #115e59;
+  --color-accent-pressed: #134e4a;
+  --color-accent-bright: #0d9488;
+  --color-accent-subtle: #ccfbf1;
+  --color-accent-tint: #f0fdfa;
+  --color-on-accent: #ffffff;
+  --color-focus-ring: rgba(13, 148, 136, 0.35);
+  --color-accent-soft: #ccfbf1;
   --color-text: #000000;
   --color-text-2: #60646c;
   --color-text-3: #6f737b;
@@ -155,8 +189,15 @@ Text contrast at least 4.5:1. Every icon button has an `aria-label` and tooltip.
   --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 [data-theme="dark"] {
-  --color-accent: #ff6a1a;
-  --color-accent-soft: #3a1e10;
+  --color-accent: #14b8a6;
+  --color-accent-hover: #0d9488;
+  --color-accent-pressed: #0f766e;
+  --color-accent-bright: #2dd4bf;
+  --color-accent-subtle: #042f2e;
+  --color-accent-tint: #042f2e;
+  --color-on-accent: #ffffff;
+  --color-focus-ring: rgba(45, 212, 191, 0.35);
+  --color-accent-soft: #042f2e;
   --color-text: #f3f3f7;
   --color-text-2: #b9bbc6;
   --color-text-3: #8b8d98;
@@ -175,7 +216,7 @@ Text contrast at least 4.5:1. Every icon button has an `aria-label` and tooltip.
 - Snap to grid on by default (16px). Node sizes are multiples of 16 so edges line up. Hold Alt to drag without snapping.
 
 **Alignment guides**
-- While dragging, show 1px accent (Ember at 70%) guide lines when the node's left, centre, right, top, middle or bottom lines up with a nearby node (within 6px), and snap to it. Show equal spacing hints (small distance badges) when gaps match.
+- While dragging, show 1px accent (at 70% opacity) guide lines when the node's left, centre, right, top, middle or bottom lines up with a nearby node (within 6px), and snap to it. Show equal spacing hints (small distance badges) when gaps match.
 
 **Edges and handles**
 - Orthogonal smoothstep edges with 8px corner radius, 1.5px `#8b8d98`, small filled arrow. Hover: 2px Ink. Selected: 2px accent.

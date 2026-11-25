@@ -76,7 +76,7 @@ export const KIND_META: Record<NodeKind, KindMeta> = {
     label: 'Rule',
     hint: 'Score or policy rules',
     icon: Scale,
-    defaultColor: 'teal',
+    defaultColor: 'indigo',
     defaultIcon: 'scale',
   },
   note: {
