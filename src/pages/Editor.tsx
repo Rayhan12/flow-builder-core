@@ -1,10 +1,29 @@
-import { ReactFlowProvider } from '@xyflow/react'
-import { ArrowLeft, Moon, Redo2, Save, Sun, Undo2, Workflow } from 'lucide-react'
+import { ReactFlowProvider, useReactFlow } from '@xyflow/react'
+import {
+  ArrowLeft,
+  Download,
+  LayoutTemplate,
+  Moon,
+  Redo2,
+  Save,
+  Sun,
+  Undo2,
+  Upload,
+  Workflow,
+} from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useAuth } from '../auth/useAuth'
 import { getDiagram, saveDiagram } from '../data/diagrams'
 import { Canvas } from '../editor/Canvas'
+import {
+  diagramFilename,
+  downloadJsonFile,
+  exportDiagramJson,
+  mergeImportedDiagram,
+  parseImportedJson,
+} from '../editor/importExport'
+import { autoLayoutDiagram, type LayoutDirection } from '../editor/layout'
 import { NodePalette } from '../editor/palette/NodePalette'
 import { NodeSidePanel } from '../editor/panels/NodeSidePanel'
 import type { NodeKind } from '../schema'
@@ -34,6 +53,7 @@ function EditorInner() {
   const { diagramId } = useParams<{ diagramId: string }>()
   const { user } = useAuth()
   const { theme, toggleTheme } = useTheme()
+  const { fitView } = useReactFlow()
 
   const diagram = useEditorStore((s) => s.diagram)
   const saveStatus = useEditorStore((s) => s.saveStatus)
@@ -49,12 +69,19 @@ function EditorInner() {
   const markSaving = useEditorStore((s) => s.markSaving)
   const markSaved = useEditorStore((s) => s.markSaved)
   const markSaveError = useEditorStore((s) => s.markSaveError)
+  const applyNodeLayout = useEditorStore((s) => s.applyNodeLayout)
+  const replaceDiagramContent = useEditorStore((s) => s.replaceDiagramContent)
 
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
+  const [layoutBusy, setLayoutBusy] = useState(false)
+  const [ioMenuOpen, setIoMenuOpen] = useState(false)
+  const [ioError, setIoError] = useState<string | null>(null)
   const savingRef = useRef(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const ioMenuRef = useRef<HTMLDivElement>(null)
   const uid = user?.uid
 
   useEffect(() => {
@@ -137,6 +164,15 @@ function EditorInner() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [undo, redo, persist])
 
+  useEffect(() => {
+    if (!ioMenuOpen) return
+    function onDoc(e: MouseEvent) {
+      if (!ioMenuRef.current?.contains(e.target as Node)) setIoMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [ioMenuOpen])
+
   const onAddKind = useCallback(
     (kind: NodeKind) => {
       const offset = useEditorStore.getState().diagram?.nodes.length ?? 0
@@ -152,6 +188,50 @@ function EditorInner() {
       addNode(parsed.data, position)
     },
     [addNode],
+  )
+
+  const runLayout = useCallback(
+    async (direction: LayoutDirection = 'DOWN') => {
+      const current = useEditorStore.getState().diagram
+      if (!current || layoutBusy) return
+      setLayoutBusy(true)
+      setIoError(null)
+      try {
+        const laidOut = await autoLayoutDiagram(current.nodes, current.edges, direction)
+        applyNodeLayout(laidOut)
+        requestAnimationFrame(() => fitView({ padding: 0.2, duration: 200 }))
+      } catch (err) {
+        setIoError(err instanceof Error ? err.message : 'Layout failed')
+      } finally {
+        setLayoutBusy(false)
+      }
+    },
+    [applyNodeLayout, fitView, layoutBusy],
+  )
+
+  const onExport = useCallback(() => {
+    const current = useEditorStore.getState().diagram
+    if (!current) return
+    setIoMenuOpen(false)
+    downloadJsonFile(diagramFilename(current.title), exportDiagramJson(current))
+  }, [])
+
+  const onImportFile = useCallback(
+    async (file: File) => {
+      const text = await file.text()
+      const current = useEditorStore.getState().diagram
+      if (!current) return
+      const result = parseImportedJson(text, current.id)
+      if (!result.ok) {
+        setIoError(result.error)
+        return
+      }
+      setIoError(null)
+      replaceDiagramContent(mergeImportedDiagram(current.id, result.diagram))
+      setTitleDraft(result.diagram.title)
+      requestAnimationFrame(() => fitView({ padding: 0.2, duration: 200 }))
+    },
+    [fitView, replaceDiagramContent],
   )
 
   function commitTitle() {
@@ -225,6 +305,7 @@ function EditorInner() {
           >
             {saveLabel(saveStatus, saveError)}
           </span>
+          {ioError ? <span className="save-status is-error">{ioError}</span> : null}
         </div>
 
         <div className="editor-topbar-right">
@@ -248,6 +329,65 @@ function EditorInner() {
           >
             <Redo2 size={18} />
           </button>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            aria-label="Auto layout"
+            title="Auto layout"
+            disabled={layoutBusy || diagram.nodes.length === 0}
+            onClick={() => void runLayout('DOWN')}
+          >
+            <LayoutTemplate size={16} aria-hidden />
+            {layoutBusy ? 'Layout...' : 'Layout'}
+          </button>
+          <div className="io-menu" ref={ioMenuRef}>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              aria-expanded={ioMenuOpen}
+              aria-haspopup="menu"
+              onClick={() => setIoMenuOpen((v) => !v)}
+            >
+              Import / Export
+            </button>
+            {ioMenuOpen ? (
+              <div className="io-menu-popover" role="menu">
+                <button
+                  type="button"
+                  className="io-menu-item"
+                  role="menuitem"
+                  onClick={() => {
+                    setIoMenuOpen(false)
+                    fileInputRef.current?.click()
+                  }}
+                >
+                  <Upload size={16} aria-hidden />
+                  Import JSON
+                </button>
+                <button
+                  type="button"
+                  className="io-menu-item"
+                  role="menuitem"
+                  onClick={onExport}
+                >
+                  <Download size={16} aria-hidden />
+                  Export JSON
+                </button>
+              </div>
+            ) : null}
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/json,.json"
+            className="sr-only"
+            aria-label="Import diagram JSON"
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              e.target.value = ''
+              if (file) void onImportFile(file)
+            }}
+          />
           <button
             type="button"
             className="btn btn-secondary"

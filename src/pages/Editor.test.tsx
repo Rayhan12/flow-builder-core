@@ -72,6 +72,8 @@ describe('EditorPage', () => {
     expect(screen.getByLabelText('Node palette')).toBeInTheDocument()
     expect(screen.getByText('No node selected')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Auto layout' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Import / Export' })).toBeInTheDocument()
   })
 
   it('adds a node from the palette and marks the diagram dirty', async () => {
