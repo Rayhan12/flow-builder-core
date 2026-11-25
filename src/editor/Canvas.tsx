@@ -28,6 +28,8 @@ import type { DiagramNode } from '../schema'
 import { useEditorStore } from '../store/editorStore'
 import {
   computeAlignment,
+  DEFAULT_NODE_HEIGHT,
+  DEFAULT_NODE_WIDTH,
   GRID_SIZE,
   nodeBox,
   type AlignmentGuide,
@@ -38,6 +40,11 @@ import { AlignmentGuides } from './AlignmentGuides'
 import { edgeTypes } from './edges/edgeTypes'
 import { toFlowEdge, toFlowNode, type FlowEdge, type FlowNode } from './flowTypes'
 import { nodeTypes } from './nodes'
+import {
+  dropPositionFromFlowPoint,
+  isPaletteDrag,
+  readPaletteDragKind,
+} from './paletteDrop'
 
 import '@xyflow/react/dist/style.css'
 
@@ -99,6 +106,9 @@ export function Canvas({ onDropKind, emptyAction, gridMode = 'dots' }: Props) {
   const [altHeld, setAltHeld] = useState(false)
   const [guides, setGuides] = useState<AlignmentGuide[]>([])
   const [spacings, setSpacings] = useState<SpacingHint[]>([])
+  const [paletteDragOver, setPaletteDragOver] = useState(false)
+  const [dropGhost, setDropGhost] = useState<{ x: number; y: number } | null>(null)
+  const dragDepthRef = useRef(0)
   const diagramNodes = diagram?.nodes
   const diagramEdges = diagram?.edges
 
@@ -302,26 +312,80 @@ export function Canvas({ onDropKind, emptyAction, gridMode = 'dots' }: Props) {
     [setViewport],
   )
 
-  const onDragOver = useCallback((event: DragEvent) => {
+  const clearPaletteDrag = useCallback(() => {
+    dragDepthRef.current = 0
+    setPaletteDragOver(false)
+    setDropGhost(null)
+  }, [])
+
+  const onDragEnter = useCallback((event: DragEvent) => {
+    if (!isPaletteDrag(event.dataTransfer)) return
     event.preventDefault()
-    event.dataTransfer.dropEffect = 'move'
+    dragDepthRef.current += 1
+    setPaletteDragOver(true)
+  }, [])
+
+  const onDragOver = useCallback((event: DragEvent) => {
+    if (!isPaletteDrag(event.dataTransfer)) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'copy'
+    const bounds = wrapperRef.current?.getBoundingClientRect()
+    if (bounds) {
+      // Cheap screen-space ghost centred on the cursor.
+      setDropGhost({
+        x: event.clientX - bounds.left - DEFAULT_NODE_WIDTH / 2,
+        y: event.clientY - bounds.top - DEFAULT_NODE_HEIGHT / 2,
+      })
+    }
+    setPaletteDragOver(true)
+  }, [])
+
+  const onDragLeave = useCallback((event: DragEvent) => {
+    if (!isPaletteDrag(event.dataTransfer)) return
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1)
+    if (dragDepthRef.current === 0) {
+      setPaletteDragOver(false)
+      setDropGhost(null)
+    }
   }, [])
 
   const onDrop = useCallback(
     (event: DragEvent) => {
       event.preventDefault()
-      const kind = event.dataTransfer.getData('application/flow-builder-kind')
+      clearPaletteDrag()
+      const kind = readPaletteDragKind(event.dataTransfer)
       if (!kind || !onDropKind) return
-      const position = screenToFlowPosition({ x: event.clientX, y: event.clientY })
-      onDropKind(kind, { x: position.x - 128, y: position.y - 48 })
+      const flowPoint = screenToFlowPosition({ x: event.clientX, y: event.clientY })
+      onDropKind(kind, dropPositionFromFlowPoint(flowPoint))
     },
-    [onDropKind, screenToFlowPosition],
+    [onDropKind, screenToFlowPosition, clearPaletteDrag],
   )
 
   if (!diagram) return null
 
   return (
-    <div className="editor-canvas" ref={wrapperRef} onDragOver={onDragOver} onDrop={onDrop}>
+    <div
+      className={`editor-canvas ${paletteDragOver ? 'is-drop-target' : ''}`}
+      ref={wrapperRef}
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+    >
+      {paletteDragOver ? (
+        <div className="canvas-drop-overlay" aria-hidden>
+          {dropGhost ? (
+            <div
+              className="canvas-drop-ghost"
+              style={{
+                transform: `translate(${dropGhost.x}px, ${dropGhost.y}px)`,
+                width: DEFAULT_NODE_WIDTH,
+                height: DEFAULT_NODE_HEIGHT,
+              }}
+            />
+          ) : null}
+        </div>
+      ) : null}
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -344,7 +408,6 @@ export function Canvas({ onDropKind, emptyAction, gridMode = 'dots' }: Props) {
         snapGrid={[GRID_SIZE, GRID_SIZE]}
         deleteKeyCode={['Backspace', 'Delete']}
         multiSelectionKeyCode={['Meta', 'Control']}
-        onlyRenderVisibleElements
         connectionRadius={24}
         proOptions={{ hideAttribution: true }}
         defaultEdgeOptions={{
