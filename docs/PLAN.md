@@ -240,3 +240,50 @@ These come after M6. M7 (deploy) is handled outside the coding runs. Do them in 
 | M8 | **Decision-flow editor polish (Taktile-like).** Follow docs/DESIGN_SYSTEM.md section 0 and 10. Taktile's decision-flow editor is the primary reference, Refero (Brex) the secondary one. Rework node cards, side panel, toolbar, palette, edges and the canvas grid. Canvas: crisp dot grid (with a line grid option), snap-to-grid always on by default (16px), alignment guides while dragging (centre and edge lines to nearby nodes), clean orthogonal edge routing (smoothstep with rounded corners, no overlaps through nodes where elk can help), tidy handles, "+" insert button on edge hover. Polished, a bit edgy, crisp 1px lines. No Taktile logo, name or code. | Looks clearly like a pro decision-flow editor; snapping and guides work; tests pass |
 | M9 | **Projects.** After sign in the user lands on a Projects list (create, rename, delete with confirm dialog that says how many diagrams will go). Each project holds its own diagrams. Firestore: `users/{uid}/projects/{pid}` with `name, createdAt, updatedAt, diagramCount`, and diagrams at `users/{uid}/projects/{pid}/diagrams/{did}` with `versions` and `messages` under each diagram (AI chat stays per diagram). Routes: `/projects`, `/projects/:pid`, `/projects/:pid/diagrams/:did`. Update firestore.rules and rules tests for the new paths (owner only), keep the old `users/{uid}/diagrams` path readable and deletable by the owner for migration. Migration: on sign in, if old top-level diagrams exist, copy them (with versions and messages) into a "My first project" default project, then delete the old ones, once, idempotent. Every new user (email or Google) gets a user doc and a default project. Deleting a project deletes its diagrams and their subcollections client side in batches. | Projects CRUD works on emulators; migration test passes; rules tests pass |
 | M10 | **Richer editing and Google sign in.** Copy, cut, paste (Cmd/Ctrl+C/X/V, keeps edges between copied nodes, offsets position), duplicate (Cmd/Ctrl+D), multi-select (shift click, drag box), align (left, centre, right, top, middle, bottom) and distribute (horizontal, vertical) from a toolbar that appears when 2+ nodes are selected, editable edge labels (double click edge), search on the canvas (Cmd/Ctrl+F or K: find nodes by label, description or kind, jump and highlight). "Continue with Google" button on sign in and sign up screens: `signInWithPopup` with `GoogleAuthProvider`, fall back to `signInWithRedirect` when the popup is blocked (`auth/popup-blocked`, `auth/cancelled-popup-request`, `auth/operation-not-supported-in-environment`), handle `getRedirectResult` on load. Styled per design system (secondary button, Google "G" mark drawn as a simple inline SVG, which is allowed for sign-in buttons). Keep email and password. First-time Google users get their user doc and default project. | All features work; tests pass |
+| M11 | **MCP server for AI agents (Vercel function).** See section 15. | Token auth and scoping tests pass; `npm run build`, lint and tests pass; local MCP call against emulators works |
+
+## 15. MCP server (M11)
+
+Goal: let a user's own AI agent (Cursor, Claude Desktop, others) read and edit their projects and diagrams through MCP. No change to the Firebase billing plan (Spark): the server runs as a Vercel serverless function, not a Cloud Function.
+
+**Layout and runtime**
+- `api/mcp.ts` at the repo root (Vercel Node function), endpoint path `/api/mcp`. Root `vercel.json` keeps the Vite SPA build (`dist`) and the function. Shared logic in `server/` (for example `server/mcp/tools.ts`, `server/mcp/auth.ts`, `server/firebaseAdmin.ts`) so it can be unit tested without Vercel.
+- Official `@modelcontextprotocol/sdk`, `StreamableHTTPServerTransport` in **stateless** mode (`sessionIdGenerator: undefined`), new server per request. Handle POST; return 405 for GET/DELETE as the SDK docs show for stateless servers.
+- `firebase-admin` initialised from env `FIREBASE_SERVICE_ACCOUNT` (base64 of the service account JSON). When `FIRESTORE_EMULATOR_HOST` is set, use the emulator with project id `flow-builder-core` and no credentials. Never commit any key. Add `FIREBASE_SERVICE_ACCOUNT=` (empty) to `.env.example` with a comment.
+- Reuse the same zod diagram schema and the same edit ops (`src/schema`, `src/ai/ops.ts`) on the server. Move shared pure code if needed so both sides import it without browser-only deps.
+
+**Tokens**
+- Settings page section "Connect your AI agent": create a named token, list tokens (name, created, last used, revoked), revoke. Show the raw token once in a copy box ("Copy it now, you will not see it again").
+- Raw token: `fbmcp_` + 32 random bytes base64url, made with `crypto.getRandomValues` in the browser. Store only `sha256(token)` hex.
+- Firestore: top-level `mcpTokens/{sha256hex}` with `{ uid, name, createdAt, lastUsedAt, revoked: false }`. Rules: create only if `request.resource.data.uid == request.auth.uid` and `revoked == false`; get, list, update (only `revoked` and `name`), delete only if `resource.data.uid == request.auth.uid`. Client lists with `where('uid','==',uid)`. Nobody can read another user's token docs. Add rules tests.
+- Section also shows the MCP URL (`VITE_MCP_URL`, default `https://<vercel-domain>/api/mcp`) and copy-paste config snippets for Cursor (`~/.cursor/mcp.json` with `url` and `headers.Authorization`), Claude Desktop (via `npx mcp-remote <url> --header "Authorization: Bearer <token>"`) and a generic Streamable HTTP client.
+
+**Server auth and scoping**
+- Read `Authorization: Bearer <token>`, hash it, get `mcpTokens/{hash}` with firebase-admin, reject missing, unknown or revoked tokens with 401 (JSON-RPC error). Update `lastUsedAt` (best effort).
+- Every Firestore path is built from that uid only: `users/{uid}/projects/...`. No tool takes a uid argument. Ids are validated (`^[A-Za-z0-9_-]{1,128}$`).
+
+**Tools** (zod input schemas, clear descriptions, JSON text results)
+- `list_projects`, `get_project {projectId}`, `create_project {name}`
+- `list_diagrams {projectId}`, `get_diagram {projectId, diagramId}` (returns full diagram JSON)
+- `create_diagram {projectId, title, diagram?}` (diagram validated with the schema)
+- `update_diagram {projectId, diagramId, diagram}` full replace, validated, saves a version snapshot (`reason: "mcp"`)
+- `apply_diagram_edits {projectId, diagramId, ops}` same ops as the AI chat, validated, version snapshot
+- `rename_diagram {projectId, diagramId, title}`
+- `delete_diagram {projectId, diagramId, confirm: true}` refuses unless `confirm === true`
+
+**Tests** (Vitest, emulators via `firebase emulators:exec`)
+- Unknown, missing and revoked tokens get 401.
+- A valid token for user A cannot see or change user B's projects or diagrams (tool calls return not found).
+- update_diagram rejects invalid JSON; apply_diagram_edits applies ops; delete without confirm is refused.
+- An end-to-end test calls the handler with a real MCP client (`Client` + `StreamableHTTPClientTransport`) against a local HTTP server.
+
+**Vercel readiness (part of M11)**
+- Root `vercel.json`: `framework: "vite"`, `buildCommand: "npm run build"`, `outputDirectory: "dist"`, SPA rewrite of non-`/api` paths to `/index.html`, function config for `api/mcp.ts` (Node runtime, maxDuration 30). Do not install or run the Vercel CLI; the project is created and linked from GitHub by someone else.
+- Write `docs/DEPLOY.md`: Firebase Hosting deploy steps for the web app (stays the main host), Vercel setup for the MCP function, and the exact env var names: `FIREBASE_SERVICE_ACCOUNT` (base64 service account JSON, server only), `FIREBASE_PROJECT_ID=flow-builder-core`, and the `VITE_FIREBASE_*` plus `VITE_USE_EMULATORS=false` values so the Vercel copy of the SPA also works. The web app reads `VITE_MCP_URL` to show the MCP URL in Settings. Include the console steps to make a service account key (Firebase console > Project settings > Service accounts > Generate new private key, then `base64 -i key.json | pbcopy`) and a warning to never commit it.
+- CORS on `/api/mcp`: allow POST and OPTIONS with `Authorization, Content-Type, Mcp-Session-Id, Mcp-Protocol-Version` headers.
+
+**Update (Nov 26, 12:35 AM): Vercel facts for M11**
+- Vercel project `flow-builder-core` is linked to GitHub main and auto-deploys. Production domain: https://flow-builder-core.vercel.app. MCP URL: https://flow-builder-core.vercel.app/api/mcp (`VITE_MCP_URL`).
+- Server credential env var is **`FIREBASE_SERVICE_ACCOUNT_KEY`** (already set in Vercel). Accept either base64 or raw JSON (try JSON.parse first, else base64 decode then parse). Fall back to `FIREBASE_SERVICE_ACCOUNT` with the same handling. `FIREBASE_PROJECT_ID` is also set. Update docs/DEPLOY.md and .env.example to these names.
+- Order changed: M9 (Projects) runs before M11, and M10 runs after M11.
+- Make sure the Vercel build passes: `vercel.json` must not break the existing SPA deploy, the function must bundle its imports from `src/` or `server/` (avoid browser-only imports in shared code), and `firebase-admin` and `@modelcontextprotocol/sdk` must be in `dependencies`.
