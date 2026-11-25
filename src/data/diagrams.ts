@@ -4,6 +4,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  limit,
   orderBy,
   query,
   serverTimestamp,
@@ -153,6 +154,47 @@ function toRecord(id: string, data: Record<string, unknown>): DiagramRecord {
 export async function listDiagrams(uid: string, projectId: string): Promise<DiagramListItem[]> {
   const snap = await getDocs(query(diagramsCol(uid, projectId), orderBy('updatedAt', 'desc')))
   return snap.docs.map((d) => toListItem(d.id, d.data() as Record<string, unknown>))
+}
+
+export type RecentDiagramItem = DiagramListItem & {
+  projectId: string
+  projectName: string
+}
+
+/**
+ * Most recently updated diagrams across all projects. Lightweight approach: one
+ * query per project (capped at `max`), merged and sorted client side. Fine for
+ * the small project counts this app targets.
+ */
+export async function listRecentDiagrams(
+  uid: string,
+  max = 8,
+  knownProjects?: { id: string; name: string }[],
+): Promise<RecentDiagramItem[]> {
+  let projects = knownProjects
+  if (!projects) {
+    const snap = await getDocs(collection(db, 'users', uid, 'projects'))
+    projects = snap.docs.map((d) => {
+      const data = d.data() as Record<string, unknown>
+      return { id: d.id, name: typeof data.name === 'string' ? data.name : 'Untitled project' }
+    })
+  }
+  const groups = await Promise.all(
+    projects.map(async (project) => {
+      const snap = await getDocs(
+        query(diagramsCol(uid, project.id), orderBy('updatedAt', 'desc'), limit(max)),
+      )
+      return snap.docs.map((d) => ({
+        ...toListItem(d.id, d.data() as Record<string, unknown>),
+        projectId: project.id,
+        projectName: project.name,
+      }))
+    }),
+  )
+  return groups
+    .flat()
+    .sort((a, b) => (b.updatedAt?.getTime() ?? Infinity) - (a.updatedAt?.getTime() ?? Infinity))
+    .slice(0, max)
 }
 
 export async function getDiagram(

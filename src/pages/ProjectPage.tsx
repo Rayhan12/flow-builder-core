@@ -1,8 +1,10 @@
-import { Copy, FilePlus2, Pencil, Trash2 } from 'lucide-react'
+import { Copy, FilePlus2, FileQuestion, FileText, Pencil, Sparkles, Trash2 } from 'lucide-react'
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useAppData } from '../app/useAppData'
 import { useAuth } from '../auth/useAuth'
 import { EmptyState } from '../components/EmptyState'
+import { ProjectTile } from '../components/ProjectTile'
 import {
   createDiagram,
   deleteDiagram,
@@ -11,29 +13,26 @@ import {
   renameDiagram,
   type DiagramListItem,
 } from '../data/diagrams'
-import { ensureDefaultProject } from '../data/projects'
+import { getProject, type Project } from '../data/projects'
+import { editorPath, formatRelative, pluralise } from '../lib/format'
 
-function formatUpdatedAt(value: Date | null): string {
-  if (!value) return 'Just now'
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(value)
+/** Remount per project so state never leaks between projects. */
+export function ProjectPage() {
+  const { projectId } = useParams<{ projectId: string }>()
+  return <ProjectPageInner key={projectId} />
 }
 
-function editorPath(projectId: string, diagramId: string): string {
-  return `/p/${projectId}/d/${diagramId}`
-}
-
-export function DiagramsPage() {
+function ProjectPageInner() {
   const { user } = useAuth()
   const navigate = useNavigate()
-  const { projectId: routeProjectId } = useParams<{ projectId?: string }>()
+  const { projectId = '' } = useParams<{ projectId: string }>()
+  const { refreshProjects, loadProjectDiagrams, openAiCreate } = useAppData()
   const uid = user?.uid
 
-  const [projectId, setProjectId] = useState<string | null>(routeProjectId ?? null)
+  const [project, setProject] = useState<Project | null>(null)
   const [items, setItems] = useState<DiagramListItem[]>([])
   const [loading, setLoading] = useState(true)
+  const [notFound, setNotFound] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -41,45 +40,32 @@ export function DiagramsPage() {
   const [renameValue, setRenameValue] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<DiagramListItem | null>(null)
 
-  useEffect(() => {
-    if (!uid) return
-    let cancelled = false
-    void (async () => {
-      try {
-        let pid = routeProjectId
-        if (!pid) {
-          const project = await ensureDefaultProject(uid)
-          pid = project.id
-        }
-        if (cancelled) return
-        setProjectId(pid)
-      } catch (err) {
-        if (cancelled) return
-        setError(err instanceof Error ? err.message : 'Could not load project')
-        setLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [uid, routeProjectId])
-
+  /** Re-read the list and keep the sidebar and dashboard counts in sync. */
   const refresh = useCallback(async () => {
     if (!uid || !projectId) return
     const next = await listDiagrams(uid, projectId)
     setItems(next)
-  }, [uid, projectId])
+    void loadProjectDiagrams(projectId, true)
+    void refreshProjects()
+  }, [uid, projectId, loadProjectDiagrams, refreshProjects])
 
   useEffect(() => {
     if (!uid || !projectId) return
     let cancelled = false
-
     void (async () => {
       try {
-        const next = await listDiagrams(uid, projectId)
+        const [proj, next] = await Promise.all([
+          getProject(uid, projectId),
+          listDiagrams(uid, projectId),
+        ])
         if (cancelled) return
-        setItems(next)
-        setError(null)
+        if (!proj) {
+          setNotFound(true)
+        } else {
+          setProject(proj)
+          setItems(next)
+          setError(null)
+        }
         setLoading(false)
       } catch (err) {
         if (cancelled) return
@@ -87,7 +73,6 @@ export function DiagramsPage() {
         setLoading(false)
       }
     })()
-
     return () => {
       cancelled = true
     }
@@ -99,6 +84,8 @@ export function DiagramsPage() {
     setError(null)
     try {
       const created = await createDiagram(uid, projectId, 'Untitled diagram')
+      void refreshProjects()
+      void loadProjectDiagrams(projectId, true)
       navigate(editorPath(projectId, created.id))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not create diagram')
@@ -153,22 +140,54 @@ export function DiagramsPage() {
     }
   }
 
+  if (notFound) {
+    return (
+      <EmptyState
+        icon={FileQuestion}
+        title="Project not found"
+        hint="It may have been deleted. Head back home to pick another project."
+        action={
+          <Link to="/" className="btn btn-primary">
+            Back to home
+          </Link>
+        }
+      />
+    )
+  }
+
   return (
     <div className="diagrams-page">
-      <div className="page-heading page-heading-row">
-        <div>
-          <h1>Your diagrams</h1>
-          <p>Create, rename, duplicate and delete decision flows.</p>
+      <div className="project-head">
+        <div className="project-head-title">
+          {project ? <ProjectTile color={project.color} icon={project.icon} size="lg" /> : null}
+          <div>
+            <h1>{project?.name ?? 'Project'}</h1>
+            <p>
+              {pluralise(items.length, 'diagram')}. Create, rename, duplicate and delete decision
+              flows.
+            </p>
+          </div>
         </div>
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={() => void onCreate()}
-          disabled={busy || !uid || !projectId}
-        >
-          <FilePlus2 size={16} aria-hidden />
-          New diagram
-        </button>
+        <div className="project-head-actions">
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => openAiCreate({ projectId })}
+            disabled={!uid || !projectId}
+          >
+            <Sparkles size={16} aria-hidden />
+            Ask AI
+          </button>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => void onCreate()}
+            disabled={busy || !uid || !projectId}
+          >
+            <FilePlus2 size={16} aria-hidden />
+            New diagram
+          </button>
+        </div>
       </div>
 
       {error ? (
@@ -199,16 +218,16 @@ export function DiagramsPage() {
         <ul className="diagram-list">
           {items.map((item) => (
             <li key={item.id} className="diagram-row">
-              <Link
-                to={projectId ? editorPath(projectId, item.id) : '/'}
-                className="diagram-row-main"
-              >
-                <h2 className="diagram-title">{item.title}</h2>
-                <p className="diagram-meta">
-                  {item.nodeCount} {item.nodeCount === 1 ? 'node' : 'nodes'}
-                  {' · '}
-                  Updated {formatUpdatedAt(item.updatedAt)}
-                </p>
+              <Link to={editorPath(projectId, item.id)} className="diagram-row-main">
+                <FileText size={16} aria-hidden className="recent-icon" />
+                <div className="diagram-row-text">
+                  <h2 className="diagram-title">{item.title}</h2>
+                  <p className="diagram-meta">
+                    {pluralise(item.nodeCount, 'node')}
+                    {' · '}
+                    Updated {formatRelative(item.updatedAt)}
+                  </p>
+                </div>
               </Link>
               <div className="diagram-row-actions">
                 <button

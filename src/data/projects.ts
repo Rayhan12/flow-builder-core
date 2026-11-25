@@ -16,6 +16,9 @@ import { deleteDiagramSubcollections, diagramsCol, legacyDiagramsCol } from './d
 
 export const DEFAULT_PROJECT_NAME = 'My first project'
 
+/** Fixed id so concurrent first-run setups (signup and auth listener) converge on one project. */
+export const DEFAULT_PROJECT_ID = 'p_default'
+
 export const DEFAULT_PROJECT_COLORS = [
   'teal',
   'blue',
@@ -133,9 +136,9 @@ export async function getProject(uid: string, projectId: string): Promise<Projec
 
 export async function createProject(
   uid: string,
-  input: { name: string; color?: string; icon?: string },
+  input: { id?: string; name: string; color?: string; icon?: string },
 ): Promise<Project> {
-  const id = newProjectId()
+  const id = input.id ?? newProjectId()
   const name = input.name.trim().slice(0, 200) || DEFAULT_PROJECT_NAME
   const color = input.color?.trim() || defaultProjectColor(id)
   const icon = input.icon?.trim() || defaultProjectIcon(id)
@@ -236,6 +239,7 @@ export async function ensureDefaultProject(uid: string): Promise<Project> {
     if (full) return full
   }
   return createProject(uid, {
+    id: DEFAULT_PROJECT_ID,
     name: DEFAULT_PROJECT_NAME,
     color: defaultProjectColor(uid),
     icon: defaultProjectIcon(uid),
