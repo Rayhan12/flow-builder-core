@@ -1,0 +1,42 @@
+rules_version = '2';
+
+// Each user can only read and write their own data.
+// Layout:
+//   users/{uid}                                  profile and settings
+//   users/{uid}/diagrams/{diagramId}             one diagram (versioned JSON)
+//   users/{uid}/diagrams/{diagramId}/messages/{messageId}   AI chat history
+//   users/{uid}/diagrams/{diagramId}/versions/{versionId}   saved snapshots
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    match /users/{uid} {
+      allow read, write: if isOwner(uid);
+
+      match /diagrams/{diagramId} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && request.resource.data.ownerId == uid
+          && request.resource.data.schemaVersion is int
+          && request.resource.data.title is string
+          && request.resource.data.title.size() <= 200;
+
+        match /{sub=**} {
+          allow read, write: if isOwner(uid);
+        }
+      }
+    }
+
+    // Deny everything else.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
