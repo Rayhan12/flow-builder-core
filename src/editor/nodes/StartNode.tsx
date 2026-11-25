@@ -4,7 +4,7 @@ import type { FlowNode } from '../flowTypes'
 import { FlowNodeShell } from './FlowNodeShell'
 
 function StartNodeInner(props: NodeProps<FlowNode>) {
-  return <FlowNodeShell {...props} showTarget={false} compact />
+  return <FlowNodeShell {...props} compact />
 }
 
 export const StartNode = memo(StartNodeInner)

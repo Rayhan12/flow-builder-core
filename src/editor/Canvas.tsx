@@ -1,6 +1,7 @@
 import {
   Background,
   BackgroundVariant,
+  ConnectionMode,
   Controls,
   MarkerType,
   MiniMap,
@@ -38,6 +39,7 @@ import {
   type SpacingHint,
 } from './alignment'
 import { AlignmentGuides } from './AlignmentGuides'
+import { remapEdgesForCollapsedGroups } from './collapsedEdges'
 import { edgeTypes } from './edges/edgeTypes'
 import { toFlowEdge, toFlowNode, type FlowEdge, type FlowNode } from './flowTypes'
 import { nodeTypes } from './nodes'
@@ -46,6 +48,7 @@ import {
   isPaletteDrag,
   readPaletteDragKind,
 } from './paletteDrop'
+import { setLastFlowPoint } from './pointerPosition'
 import { sortNodesForCanvas } from './zOrder'
 
 import '@xyflow/react/dist/style.css'
@@ -91,6 +94,18 @@ function worldPosition(node: DiagramNode, nodes: DiagramNode[]): { x: number; y:
     x: node.position.x + parent.position.x,
     y: node.position.y + parent.position.y,
   }
+}
+
+function nearestSideHandle(
+  point: { x: number; y: number },
+  box: { left: number; top: number; width: number; height: number },
+): 'top' | 'right' | 'bottom' | 'left' {
+  const cx = box.left + box.width / 2
+  const cy = box.top + box.height / 2
+  const dx = (point.x - cx) / Math.max(box.width, 1)
+  const dy = (point.y - cy) / Math.max(box.height, 1)
+  if (Math.abs(dx) > Math.abs(dy)) return dx > 0 ? 'right' : 'left'
+  return dy > 0 ? 'bottom' : 'top'
 }
 
 export function Canvas({ onDropKind, emptyAction, gridMode = 'dots' }: Props) {
@@ -166,16 +181,6 @@ export function Canvas({ onDropKind, emptyAction, gridMode = 'dots' }: Props) {
     return set
   }, [diagramNodes])
 
-  const hiddenNodeIds = useMemo(() => {
-    const set = new Set<string>()
-    if (!diagramNodes) return set
-    for (const n of diagramNodes) {
-      if (n.hidden) set.add(n.id)
-      if (n.parentId && collapsedParents.has(n.parentId)) set.add(n.id)
-    }
-    return set
-  }, [diagramNodes, collapsedParents])
-
   const nodes: FlowNode[] = useMemo(() => {
     if (!diagramNodes) return []
     const selected = new Set(selectedNodeIds)
@@ -189,10 +194,18 @@ export function Canvas({ onDropKind, emptyAction, gridMode = 'dots' }: Props) {
   const edges: FlowEdge[] = useMemo(() => {
     if (!diagramNodes || !diagramEdges) return []
     const selected = new Set(selectedEdgeIds)
-    return diagramEdges
-      .filter((e) => !hiddenNodeIds.has(e.source) && !hiddenNodeIds.has(e.target))
+    const userHidden = new Set(
+      diagramNodes.filter((n) => n.hidden === true).map((n) => n.id),
+    )
+    const remapped = remapEdgesForCollapsedGroups(
+      diagramEdges,
+      diagramNodes,
+      collapsedParents,
+    )
+    return remapped
+      .filter((e) => !userHidden.has(e.source) && !userHidden.has(e.target))
       .map((e) => toFlowEdge(e, selected.has(e.id)))
-  }, [diagramNodes, diagramEdges, selectedEdgeIds, hiddenNodeIds])
+  }, [diagramNodes, diagramEdges, selectedEdgeIds, collapsedParents])
 
   const clearGuides = useCallback(() => {
     setGuides([])
@@ -286,11 +299,33 @@ export function Canvas({ onDropKind, emptyAction, gridMode = 'dots' }: Props) {
 
   const onConnect = useCallback(
     (connection: Connection) => {
+      if (!connection.source || !connection.target) return
+      const d = useEditorStore.getState().diagram
+      let sourceHandle = connection.sourceHandle ?? undefined
+      let targetHandle = connection.targetHandle ?? undefined
+      if (d && (!sourceHandle || !targetHandle)) {
+        const sourceNode = d.nodes.find((n) => n.id === connection.source)
+        const targetNode = d.nodes.find((n) => n.id === connection.target)
+        if (sourceNode && !sourceHandle) {
+          const box = nodeBox(sourceNode, d.nodes)
+          const targetPos = targetNode
+            ? worldPosition(targetNode, d.nodes)
+            : { x: box.left + box.width / 2, y: box.top + box.height }
+          sourceHandle = nearestSideHandle(targetPos, box)
+        }
+        if (targetNode && !targetHandle) {
+          const box = nodeBox(targetNode, d.nodes)
+          const sourcePos = sourceNode
+            ? worldPosition(sourceNode, d.nodes)
+            : { x: box.left + box.width / 2, y: box.top }
+          targetHandle = nearestSideHandle(sourcePos, box)
+        }
+      }
       addEdgeFromConnection({
         source: connection.source,
         target: connection.target,
-        sourceHandle: connection.sourceHandle,
-        targetHandle: connection.targetHandle,
+        sourceHandle,
+        targetHandle,
       })
     },
     [addEdgeFromConnection],
@@ -464,6 +499,9 @@ export function Canvas({ onDropKind, emptyAction, gridMode = 'dots' }: Props) {
         onPaneClick={onPaneClick}
         onNodeDragStop={onNodeDragStop}
         onViewportChange={onViewportChange}
+        onPointerMove={(event) => {
+          setLastFlowPoint(screenToFlowPosition({ x: event.clientX, y: event.clientY }))
+        }}
         defaultViewport={diagram.viewport}
         fitView={
           diagram.nodes.length > 0 &&
@@ -480,7 +518,8 @@ export function Canvas({ onDropKind, emptyAction, gridMode = 'dots' }: Props) {
         panOnScroll
         nodesConnectable
         edgesReconnectable
-        connectionRadius={24}
+        connectionMode={ConnectionMode.Loose}
+        connectionRadius={28}
         proOptions={{ hideAttribution: true }}
         defaultEdgeOptions={{
           type: 'flow',

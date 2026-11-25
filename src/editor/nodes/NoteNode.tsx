@@ -7,7 +7,7 @@ function NoteNodeInner(props: NodeProps<FlowNode>) {
   const node = props.data.diagramNode
   const text = node.kind === 'note' ? node.data.text : ''
   return (
-    <FlowNodeShell {...props} noteStyle showTarget={false} showSource={false}>
+    <FlowNodeShell {...props} noteStyle>
       {text ? <p className="flow-node-note-text">{text}</p> : null}
     </FlowNodeShell>
   )
