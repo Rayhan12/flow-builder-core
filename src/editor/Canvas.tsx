@@ -14,10 +14,27 @@ import {
   type Viewport,
 } from '@xyflow/react'
 import { MousePointerClick } from 'lucide-react'
-import { useCallback, useMemo, useRef, type DragEvent, type ReactNode } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type ReactNode,
+} from 'react'
 import { EmptyState } from '../components/EmptyState'
 import type { DiagramNode } from '../schema'
 import { useEditorStore } from '../store/editorStore'
+import {
+  computeAlignment,
+  GRID_SIZE,
+  nodeBox,
+  type AlignmentGuide,
+  type GridMode,
+  type SpacingHint,
+} from './alignment'
+import { AlignmentGuides } from './AlignmentGuides'
 import { edgeTypes } from './edges/edgeTypes'
 import { toFlowEdge, toFlowNode, type FlowEdge, type FlowNode } from './flowTypes'
 import { nodeTypes } from './nodes'
@@ -27,6 +44,7 @@ import '@xyflow/react/dist/style.css'
 type Props = {
   onDropKind?: (kind: string, position: { x: number; y: number }) => void
   emptyAction?: ReactNode
+  gridMode?: GridMode
 }
 
 function findGroupAtPoint(
@@ -37,7 +55,6 @@ function findGroupAtPoint(
   const groups = nodes.filter(
     (n) => n.kind === 'group' && n.id !== excludeId && n.data.collapsed !== true,
   )
-  // Prefer the top-most (last) group that contains the point
   for (let i = groups.length - 1; i >= 0; i -= 1) {
     const group = groups[i]
     const w = group.size?.w ?? 360
@@ -64,7 +81,7 @@ function worldPosition(node: DiagramNode, nodes: DiagramNode[]): { x: number; y:
   }
 }
 
-export function Canvas({ onDropKind, emptyAction }: Props) {
+export function Canvas({ onDropKind, emptyAction, gridMode = 'dots' }: Props) {
   const diagram = useEditorStore((s) => s.diagram)
   const selectedNodeIds = useEditorStore((s) => s.selectedNodeIds)
   const selectedEdgeIds = useEditorStore((s) => s.selectedEdgeIds)
@@ -79,8 +96,31 @@ export function Canvas({ onDropKind, emptyAction }: Props) {
   const { screenToFlowPosition } = useReactFlow()
 
   const wrapperRef = useRef<HTMLDivElement>(null)
+  const [altHeld, setAltHeld] = useState(false)
+  const [guides, setGuides] = useState<AlignmentGuide[]>([])
+  const [spacings, setSpacings] = useState<SpacingHint[]>([])
   const diagramNodes = diagram?.nodes
   const diagramEdges = diagram?.edges
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Alt') setAltHeld(true)
+    }
+    function onKeyUp(e: KeyboardEvent) {
+      if (e.key === 'Alt') setAltHeld(false)
+    }
+    function onBlur() {
+      setAltHeld(false)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('blur', onBlur)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('blur', onBlur)
+    }
+  }, [])
 
   const collapsedParents = useMemo(() => {
     const set = new Set<string>()
@@ -119,6 +159,11 @@ export function Canvas({ onDropKind, emptyAction }: Props) {
       .map((e) => toFlowEdge(e, selected.has(e.id)))
   }, [diagramNodes, diagramEdges, selectedEdgeIds, collapsedParents])
 
+  const clearGuides = useCallback(() => {
+    setGuides([])
+    setSpacings([])
+  }, [])
+
   const onNodesChange = useCallback(
     (changes: NodeChangeset<FlowNode>) => {
       const removes = changes.getByType('remove').map((c) => c.id)
@@ -127,28 +172,73 @@ export function Canvas({ onDropKind, emptyAction }: Props) {
       const positionChanges = changes.getByType('position')
       const dragging = positionChanges.filter((c) => c.position && c.dragging)
       const settled = positionChanges.filter((c) => c.position && !c.dragging)
+
       if (dragging.length) {
-        moveNodes(
-          dragging.map((c) => ({ id: c.id, position: c.position! })),
-          false,
-        )
+        const d = useEditorStore.getState().diagram
+        if (!d || altHeld) {
+          moveNodes(
+            dragging.map((c) => ({ id: c.id, position: c.position! })),
+            false,
+          )
+          clearGuides()
+        } else {
+          const dragId = dragging[0].id
+          const dragPos = dragging[0].position!
+          const diagramNode = d.nodes.find((n) => n.id === dragId)
+          if (!diagramNode) {
+            moveNodes(
+              dragging.map((c) => ({ id: c.id, position: c.position! })),
+              false,
+            )
+          } else {
+            // Apply position temporarily for box calc of nested coords
+            const tempNodes = d.nodes.map((n) =>
+              n.id === dragId ? { ...n, position: dragPos } : n,
+            )
+            const moving = nodeBox(diagramNode.kind === 'group' ? { ...diagramNode, position: dragPos } : { ...diagramNode, position: dragPos }, tempNodes)
+            const others = tempNodes
+              .filter((n) => n.id !== dragId && n.kind !== 'group')
+              .map((n) => nodeBox(n, tempNodes))
+            const aligned = computeAlignment(moving, others)
+
+            // Convert absolute snap back to relative position if nested
+            let nextPos = { x: aligned.box.left, y: aligned.box.top }
+            if (diagramNode.parentId) {
+              const parent = tempNodes.find((n) => n.id === diagramNode.parentId)
+              if (parent) {
+                nextPos = {
+                  x: aligned.box.left - parent.position.x,
+                  y: aligned.box.top - parent.position.y,
+                }
+              }
+            }
+
+            const updates = dragging.map((c) =>
+              c.id === dragId ? { id: c.id, position: nextPos } : { id: c.id, position: c.position! },
+            )
+            moveNodes(updates, false)
+            setGuides(aligned.guides)
+            setSpacings(aligned.spacings)
+          }
+        }
       }
+
       if (settled.length) {
         moveNodes(
           settled.map((c) => ({ id: c.id, position: c.position! })),
           true,
         )
+        clearGuides()
       }
 
       for (const change of changes.getByType('dimensions')) {
         if (!change.dimensions) continue
         const { width, height } = change.dimensions
         if (width <= 0 || height <= 0) continue
-        // Record history only when resize finishes
         resizeNode(change.id, { w: width, h: height }, change.resizing !== true)
       }
     },
-    [moveNodes, removeNodes, resizeNode],
+    [moveNodes, removeNodes, resizeNode, altHeld, clearGuides],
   )
 
   const onEdgesChange = useCallback(
@@ -183,6 +273,7 @@ export function Canvas({ onDropKind, emptyAction }: Props) {
 
   const onNodeDragStop = useCallback(
     (_: unknown, node: FlowNode) => {
+      clearGuides()
       const d = useEditorStore.getState().diagram
       if (!d) return
       const diagramNode = d.nodes.find((n) => n.id === node.id)
@@ -201,7 +292,7 @@ export function Canvas({ onDropKind, emptyAction }: Props) {
       if (nextParentId === currentParentId) return
       setNodeParent(node.id, nextParentId, world)
     },
-    [setNodeParent],
+    [setNodeParent, clearGuides],
   )
 
   const onViewportChange = useCallback(
@@ -222,7 +313,7 @@ export function Canvas({ onDropKind, emptyAction }: Props) {
       const kind = event.dataTransfer.getData('application/flow-builder-kind')
       if (!kind || !onDropKind) return
       const position = screenToFlowPosition({ x: event.clientX, y: event.clientY })
-      onDropKind(kind, { x: position.x - 110, y: position.y - 40 })
+      onDropKind(kind, { x: position.x - 128, y: position.y - 48 })
     },
     [onDropKind, screenToFlowPosition],
   )
@@ -249,24 +340,52 @@ export function Canvas({ onDropKind, emptyAction }: Props) {
             ? undefined
             : diagram.nodes.length === 0
         }
-        snapToGrid
-        snapGrid={[16, 16]}
+        snapToGrid={!altHeld}
+        snapGrid={[GRID_SIZE, GRID_SIZE]}
         deleteKeyCode={['Backspace', 'Delete']}
         multiSelectionKeyCode={['Meta', 'Control']}
         onlyRenderVisibleElements
+        connectionRadius={24}
         proOptions={{ hideAttribution: true }}
         defaultEdgeOptions={{
           type: 'flow',
-          markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: '#8b8d98' },
+          markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14, color: '#8b8d98' },
         }}
       >
-        <Background
-          id="dots"
-          variant={BackgroundVariant.Dots}
-          gap={16}
-          size={1}
-          color="var(--color-border)"
-        />
+        {gridMode === 'dots' ? (
+          <>
+            <Background
+              id="dots-minor"
+              variant={BackgroundVariant.Dots}
+              gap={GRID_SIZE}
+              size={1}
+              color="var(--canvas-dot)"
+            />
+            <Background
+              id="dots-major"
+              variant={BackgroundVariant.Dots}
+              gap={GRID_SIZE * 5}
+              size={1.5}
+              color="var(--canvas-dot-major)"
+            />
+          </>
+        ) : null}
+        {gridMode === 'lines' ? (
+          <>
+            <Background
+              id="lines-minor"
+              variant={BackgroundVariant.Lines}
+              gap={GRID_SIZE}
+              color="var(--canvas-line-minor)"
+            />
+            <Background
+              id="lines-major"
+              variant={BackgroundVariant.Lines}
+              gap={GRID_SIZE * 5}
+              color="var(--canvas-line-major)"
+            />
+          </>
+        ) : null}
         <Controls showInteractive={false} position="bottom-left" />
         <MiniMap
           pannable
@@ -275,6 +394,7 @@ export function Canvas({ onDropKind, emptyAction }: Props) {
           nodeStrokeWidth={2}
           maskColor="color-mix(in srgb, var(--color-chrome-dark) 12%, transparent)"
         />
+        <AlignmentGuides guides={guides} spacings={spacings} />
         {diagram.nodes.length === 0 ? (
           <Panel position="top-center" className="canvas-empty-panel">
             <EmptyState
