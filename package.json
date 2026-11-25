@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "emulators": "firebase emulators:start --only auth,firestore --project demo-flow-builder",
+    "emulators": "firebase emulators:start --only auth,firestore --project flow-builder-core",
     "deploy": "npm run build && firebase deploy --only hosting,firestore"
   },
   "dependencies": {
