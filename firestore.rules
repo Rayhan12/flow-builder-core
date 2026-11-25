@@ -17,18 +17,29 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == uid;
     }
 
+    function validDiagramWrite(uid) {
+      return isOwner(uid)
+        && request.resource.data.ownerId == uid
+        && request.resource.data.schemaVersion is int
+        && request.resource.data.title is string
+        && request.resource.data.title.size() <= 200;
+    }
+
     match /users/{uid} {
-      allow read, write: if isOwner(uid);
+      allow read, create, update, delete: if isOwner(uid);
 
       match /diagrams/{diagramId} {
-        allow read, delete: if isOwner(uid);
-        allow create, update: if isOwner(uid)
-          && request.resource.data.ownerId == uid
-          && request.resource.data.schemaVersion is int
-          && request.resource.data.title is string
-          && request.resource.data.title.size() <= 200;
+        allow read: if isOwner(uid);
+        allow create, update: if validDiagramWrite(uid);
+        allow delete: if isOwner(uid);
 
-        match /{sub=**} {
+        // Named subcollections only. Do not use {name=**} here: a recursive
+        // wildcard also matches zero segments and would bypass diagram checks.
+        match /messages/{messageId} {
+          allow read, write: if isOwner(uid);
+        }
+
+        match /versions/{versionId} {
           allow read, write: if isOwner(uid);
         }
       }
