@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@xyflow/react": "^13.0.3",
+    "elkjs": "^0.12.2",
     "firebase": "^13.4.0",
     "lucide-react": "^1.80.0",
     "react": "^19.3.1",
