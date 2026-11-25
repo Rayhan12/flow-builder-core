@@ -1,6 +1,7 @@
 import type { Edge, Node } from '@xyflow/react'
-import type { DiagramEdge, DiagramNode, NodeKind } from '../schema'
+import { isContainerKind, type DiagramEdge, type DiagramNode, type NodeKind } from '../schema'
 import { DEFAULT_NODE_HEIGHT, DEFAULT_NODE_WIDTH } from './alignment'
+import { effectiveZIndex } from './zOrder'
 
 export type FlowNodeData = {
   diagramNode: DiagramNode
@@ -21,9 +22,10 @@ export function absolutePosition(
 }
 
 function defaultSizeFor(node: DiagramNode): { w: number; h: number } {
-  if (node.kind === 'group') {
-    const collapsed = node.data.collapsed === true
-    return { w: collapsed ? 224 : 360, h: collapsed ? 48 : 240 }
+  if (isContainerKind(node.kind)) {
+    const collapsed =
+      (node.kind === 'group' || node.kind === 'section') && node.data.collapsed === true
+    return { w: collapsed ? 224 : node.kind === 'section' ? 480 : 360, h: collapsed ? 48 : node.kind === 'section' ? 320 : 240 }
   }
   if (node.kind === 'start' || node.kind === 'end') {
     return { w: 176, h: 64 }
@@ -36,11 +38,14 @@ export function toFlowNode(
   selected: boolean,
   options: { parentCollapsed?: boolean } = {},
 ): FlowNode {
-  const isGroup = node.kind === 'group'
-  const collapsed = isGroup && node.data.collapsed === true
+  const isContainer = isContainerKind(node.kind)
+  const collapsed =
+    (node.kind === 'group' || node.kind === 'section') && node.data.collapsed === true
   const fallback = defaultSizeFor(node)
   const width = node.size?.w ?? fallback.w
   const height = node.size?.h ?? fallback.h
+  const hidden = node.hidden === true || options.parentCollapsed === true
+  const locked = node.locked === true
   // React Flow hides nodes until they have dimensions. Controlled updates replace
   // node object identity and wipe internal `measured` unless width/height (or
   // measured) are present on the user node, so always forward an explicit size.
@@ -52,9 +57,10 @@ export function toFlowNode(
     parentId: node.parentId,
     extent: node.parentId ? 'parent' : undefined,
     expandParent: Boolean(node.parentId),
-    hidden: options.parentCollapsed === true,
-    draggable: !options.parentCollapsed,
-    zIndex: isGroup ? -1 : 1,
+    hidden,
+    draggable: !locked && !options.parentCollapsed,
+    selectable: !locked,
+    zIndex: effectiveZIndex(node),
     width,
     height,
     initialWidth: width,
@@ -62,7 +68,7 @@ export function toFlowNode(
     ...(node.size
       ? { measured: { width: node.size.w, height: node.size.h } }
       : {}),
-    style: isGroup
+    style: isContainer
       ? {
           width: collapsed ? 224 : width,
           height: collapsed ? 48 : height,

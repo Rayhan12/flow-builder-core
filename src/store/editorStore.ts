@@ -1,6 +1,7 @@
 import { create } from 'zustand'
-import type { Diagram, DiagramEdge, DiagramNode, NodeKind } from '../schema'
+import { isContainerKind, type Diagram, type DiagramEdge, type DiagramNode, type NodeKind } from '../schema'
 import { createNodeOfKind, newEdgeId, newNodeId } from '../editor/kinds'
+import { applyZOrder, type ZOrderAction } from '../editor/zOrder'
 
 const MAX_HISTORY = 80
 const PASTE_OFFSET = 40
@@ -46,6 +47,7 @@ type EditorState = {
 
   addNode: (kind: NodeKind, position: { x: number; y: number }) => string | null
   updateNode: (id: string, patch: Partial<DiagramNode>) => void
+  updateNodes: (ids: string[], patch: Partial<DiagramNode>) => void
   replaceNode: (node: DiagramNode) => void
   removeNodes: (ids: string[]) => void
   moveNodes: (updates: Array<{ id: string; position: { x: number; y: number } }>, recordHistory: boolean) => void
@@ -66,10 +68,17 @@ type EditorState = {
   }) => void
   insertNodeOnEdge: (edgeId: string, kind: NodeKind) => string | null
   updateEdge: (id: string, patch: Partial<DiagramEdge>) => void
+  updateEdges: (ids: string[], patch: Partial<DiagramEdge>) => void
   removeEdges: (ids: string[]) => void
 
   setSelection: (nodeIds: string[], edgeIds: string[]) => void
   clearSelection: () => void
+
+  toggleHidden: (ids: string[]) => void
+  setHidden: (ids: string[], hidden: boolean) => void
+  showAllHidden: () => void
+  toggleLocked: (ids: string[]) => void
+  reorderZ: (ids: string[], action: ZOrderAction) => void
 
   copySelection: () => boolean
   pasteClipboard: () => boolean
@@ -84,6 +93,14 @@ type EditorState = {
   markSaved: (revision: number) => void
   markSaveError: (message: string) => void
   markDirty: () => void
+}
+
+function sameIdList(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false
+  }
+  return true
 }
 
 function remapClipboard(
@@ -254,6 +271,20 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       })),
     ),
 
+  updateNodes: (ids, patch) => {
+    const idSet = new Set(ids)
+    if (idSet.size === 0) return
+    set((state) =>
+      withHistory(state, (d) => ({
+        ...d,
+        nodes: d.nodes.map((n) => {
+          if (!idSet.has(n.id)) return n
+          return { ...n, ...patch, id: n.id, kind: n.kind } as DiagramNode
+        }),
+      })),
+    )
+  },
+
   replaceNode: (node) =>
     set((state) =>
       withHistory(state, (d) => ({
@@ -311,12 +342,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((state) =>
       withHistory(state, (d) => {
         const node = d.nodes.find((n) => n.id === id)
-        if (!node || node.kind === 'group') return d
+        if (!node || isContainerKind(node.kind)) return d
         if (parentId === id) return d
 
         let position = absolutePosition
         if (parentId) {
-          const parent = d.nodes.find((n) => n.id === parentId && n.kind === 'group')
+          const parent = d.nodes.find((n) => n.id === parentId && isContainerKind(n.kind))
           if (!parent) return d
           position = {
             x: absolutePosition.x - parent.position.x,
@@ -388,7 +419,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   insertNodeOnEdge: (edgeId, kind) => {
-    if (kind === 'group') return null
+    if (isContainerKind(kind)) return null
     let createdId: string | null = null
     set((state) =>
       withHistory(state, (d) => {
@@ -441,6 +472,17 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       })),
     ),
 
+  updateEdges: (ids, patch) => {
+    const idSet = new Set(ids)
+    if (idSet.size === 0) return
+    set((state) =>
+      withHistory(state, (d) => ({
+        ...d,
+        edges: d.edges.map((e) => (idSet.has(e.id) ? { ...e, ...patch, id: e.id } : e)),
+      })),
+    )
+  },
+
   removeEdges: (ids) => {
     const idSet = new Set(ids)
     set((state) =>
@@ -454,9 +496,90 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }))
   },
 
-  setSelection: (nodeIds, edgeIds) => set({ selectedNodeIds: nodeIds, selectedEdgeIds: edgeIds }),
+  setSelection: (nodeIds, edgeIds) => {
+    const nextNodes = [...nodeIds]
+    const nextEdges = [...edgeIds]
+    const state = get()
+    if (
+      sameIdList(state.selectedNodeIds, nextNodes) &&
+      sameIdList(state.selectedEdgeIds, nextEdges)
+    ) {
+      return
+    }
+    set({ selectedNodeIds: nextNodes, selectedEdgeIds: nextEdges })
+  },
 
   clearSelection: () => set({ selectedNodeIds: [], selectedEdgeIds: [] }),
+
+  toggleHidden: (ids) => {
+    const idSet = new Set(ids)
+    if (idSet.size === 0) return
+    set((state) =>
+      withHistory(state, (d) => {
+        const anyVisible = d.nodes.some((n) => idSet.has(n.id) && n.hidden !== true)
+        const hidden = anyVisible
+        return {
+          ...d,
+          nodes: d.nodes.map((n) =>
+            idSet.has(n.id) ? ({ ...n, hidden } as DiagramNode) : n,
+          ),
+        }
+      }),
+    )
+  },
+
+  setHidden: (ids, hidden) => {
+    const idSet = new Set(ids)
+    if (idSet.size === 0) return
+    set((state) =>
+      withHistory(state, (d) => ({
+        ...d,
+        nodes: d.nodes.map((n) =>
+          idSet.has(n.id) ? ({ ...n, hidden: hidden || undefined } as DiagramNode) : n,
+        ),
+      })),
+    )
+  },
+
+  showAllHidden: () =>
+    set((state) =>
+      withHistory(state, (d) => {
+        if (!d.nodes.some((n) => n.hidden)) return d
+        return {
+          ...d,
+          nodes: d.nodes.map((n) =>
+            n.hidden ? ({ ...n, hidden: undefined } as DiagramNode) : n,
+          ),
+        }
+      }),
+    ),
+
+  toggleLocked: (ids) => {
+    const idSet = new Set(ids)
+    if (idSet.size === 0) return
+    set((state) =>
+      withHistory(state, (d) => {
+        const anyUnlocked = d.nodes.some((n) => idSet.has(n.id) && n.locked !== true)
+        const locked = anyUnlocked
+        return {
+          ...d,
+          nodes: d.nodes.map((n) =>
+            idSet.has(n.id) ? ({ ...n, locked: locked || undefined } as DiagramNode) : n,
+          ),
+        }
+      }),
+    )
+  },
+
+  reorderZ: (ids, action) => {
+    if (ids.length === 0) return
+    set((state) =>
+      withHistory(state, (d) => ({
+        ...d,
+        nodes: applyZOrder(d.nodes, ids, action),
+      })),
+    )
+  },
 
   copySelection: () => {
     const state = get()

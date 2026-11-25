@@ -1,5 +1,7 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { Eye, EyeOff } from 'lucide-react'
 import { createElement, memo, type CSSProperties, type ReactNode } from 'react'
+import { useEditorStore } from '../../store/editorStore'
 import { resolveColor } from '../colors'
 import type { FlowNode } from '../flowTypes'
 import { getLucideIcon } from '../icons'
@@ -29,6 +31,7 @@ function FlowNodeShellInner({
   invalid = false,
 }: Props) {
   const node = data.diagramNode
+  const toggleHidden = useEditorStore((s) => s.toggleHidden)
   const meta = KIND_META[node.kind]
   const color = resolveColor(node.color, meta.defaultColor)
   const iconEl = createElement(getLucideIcon(node.icon, meta.icon), {
@@ -36,6 +39,7 @@ function FlowNodeShellInner({
     color: selected && !noteStyle && !groupStyle ? '#ffffff' : color.solid,
     strokeWidth: 2,
   })
+  const hidden = node.hidden === true
 
   if (groupStyle) {
     const collapsed = node.kind === 'group' && node.data.collapsed === true
@@ -54,8 +58,22 @@ function FlowNodeShellInner({
         <div className="flow-group-label-row">
           {children}
           <div className="flow-group-label">
-            {node.kind === 'group' ? node.data.label : node.label}
+            {node.kind === 'group' || node.kind === 'section'
+              ? node.data.label
+              : node.label}
           </div>
+          <button
+            type="button"
+            className="flow-node-hide-btn"
+            aria-label={hidden ? 'Show' : 'Hide'}
+            data-testid={`node-hide-${node.id}`}
+            onClick={(e) => {
+              e.stopPropagation()
+              toggleHidden([node.id])
+            }}
+          >
+            {hidden ? <EyeOff size={12} /> : <Eye size={12} />}
+          </button>
         </div>
         {showTarget ? <Handle type="target" position={Position.Top} className="flow-handle" /> : null}
         {showSource ? <Handle type="source" position={Position.Bottom} className="flow-handle" /> : null}
@@ -83,6 +101,19 @@ function FlowNodeShellInner({
     >
       {invalid ? <span className="flow-node-error-dot" aria-hidden /> : null}
       {showTarget ? <Handle type="target" position={Position.Top} className="flow-handle" /> : null}
+
+      <button
+        type="button"
+        className="flow-node-hide-btn"
+        aria-label={hidden ? 'Show' : 'Hide'}
+        data-testid={`node-hide-${node.id}`}
+        onClick={(e) => {
+          e.stopPropagation()
+          toggleHidden([node.id])
+        }}
+      >
+        {hidden ? <EyeOff size={12} /> : <Eye size={12} />}
+      </button>
 
       <div className="flow-node-header">
         <span className="flow-node-icon" aria-hidden>

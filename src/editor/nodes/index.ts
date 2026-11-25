@@ -6,8 +6,11 @@ import { IntegrationNode } from './IntegrationNode'
 import { MappingNode } from './MappingNode'
 import { NoteNode } from './NoteNode'
 import { RuleNode } from './RuleNode'
+import { SectionNode } from './SectionNode'
+import { ShapeNode } from './ShapeNode'
 import { StartNode } from './StartNode'
 import { StepNode } from './StepNode'
+import { StickyNode } from './StickyNode'
 
 export const nodeTypes: NodeTypes = {
   start: StartNode,
@@ -19,4 +22,7 @@ export const nodeTypes: NodeTypes = {
   rule: RuleNode,
   note: NoteNode,
   group: GroupNode,
+  shape: ShapeNode,
+  sticky: StickyNode,
+  section: SectionNode,
 }
