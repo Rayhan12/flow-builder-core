@@ -1,4 +1,7 @@
-import { createElement, useEffect, useMemo, useRef, useState } from 'react'
+import { createElement, useCallback, useMemo, useRef, useState } from 'react'
+import { Layers } from 'lucide-react'
+import { useDismiss } from '../hooks/useDismiss'
+import { useEditorStore } from '../store/editorStore'
 import {
   getLucideIcon,
   pushRecentIcon,
@@ -6,7 +9,6 @@ import {
   searchIcons,
   type IconEntry,
 } from './icons'
-import { Layers } from 'lucide-react'
 
 type Props = {
   value?: string
@@ -26,22 +28,17 @@ export function IconPicker({ value, onChange, fallbackIconName = 'layers' }: Pro
   const [scrollTop, setScrollTop] = useState(0)
   const rootRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    function onDoc(e: MouseEvent) {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false)
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('mousedown', onDoc)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDoc)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
+  const selectedNodeIds = useEditorStore((s) => s.selectedNodeIds)
+  const selectedEdgeIds = useEditorStore((s) => s.selectedEdgeIds)
+  const selectionKey = `${selectedNodeIds.join(',')}|${selectedEdgeIds.join(',')}`
+  const dismiss = useCallback(() => setOpen(false), [])
+  useDismiss({
+    open,
+    onDismiss: dismiss,
+    rootRef,
+    selectionKey,
+    routeKey: typeof window !== 'undefined' ? window.location.pathname : undefined,
+  })
 
   const results = useMemo(() => searchIcons(query), [query])
   const totalRows = Math.ceil(results.length / COLS)

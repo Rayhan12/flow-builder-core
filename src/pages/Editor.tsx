@@ -2,6 +2,7 @@ import { ReactFlowProvider, useReactFlow, useViewport } from '@xyflow/react'
 import {
   ArrowLeft,
   Download,
+  Eye,
   FileQuestion,
   Grid3x3,
   Keyboard,
@@ -13,12 +14,13 @@ import {
   Save,
   Search,
   Sparkles,
+  Spline,
   Sun,
   Undo2,
   Upload,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import { AssistantPanel } from '../ai/AssistantPanel'
 import { useAppData } from '../app/useAppData'
 import { useAuth } from '../auth/useAuth'
@@ -30,7 +32,9 @@ import {
   gridModeLabel,
   type GridMode,
 } from '../editor/alignment'
-import { Canvas } from '../editor/Canvas'
+import { Canvas, type CanvasTool } from '../editor/Canvas'
+import { readShowNodeHints, writeShowNodeHints } from '../editor/nodeHints'
+import { useDismiss } from '../hooks/useDismiss'
 import {
   DIAGRAM_SIZE_WARN_BYTES,
   estimateDiagramBytes,
@@ -139,6 +143,7 @@ function EditorInner() {
   const selectAll = useEditorStore((s) => s.selectAll)
   const nudgeSelection = useEditorStore((s) => s.nudgeSelection)
   const selectedNodeIds = useEditorStore((s) => s.selectedNodeIds)
+  const selectedEdgeIds = useEditorStore((s) => s.selectedEdgeIds)
   const toggleHidden = useEditorStore((s) => s.toggleHidden)
   const toggleLocked = useEditorStore((s) => s.toggleLocked)
   const showAllHidden = useEditorStore((s) => s.showAllHidden)
@@ -164,12 +169,61 @@ function EditorInner() {
   const [gridMode, setGridMode] = useState<GridMode>('dots')
   const [showMinimap, setShowMinimap] = useState(readMinimapPref)
   const [snapToGridEnabled, setSnapToGridEnabled] = useState(readSnapPref)
+  const [tool, setTool] = useState<CanvasTool>('select')
+  const [connectFromId, setConnectFromId] = useState<string | null>(null)
+  const [connectTargetId, setConnectTargetId] = useState<string | null>(null)
+  const [showNodeHints, setShowNodeHints] = useState(readShowNodeHints)
+  const [viewMenuOpen, setViewMenuOpen] = useState(false)
+  const [connectorHint, setConnectorHint] = useState<string | null>(null)
   const savingRef = useRef(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const ioMenuRef = useRef<HTMLDivElement>(null)
+  const viewMenuRef = useRef<HTMLDivElement>(null)
   const nudgeBurstRef = useRef(false)
   const nudgeTimerRef = useRef<number | null>(null)
   const uid = user?.uid
+  const location = useLocation()
+  const selectionKey = `${selectedNodeIds.join(',')}|${selectedEdgeIds.join(',')}`
+
+  const dismissViewMenu = useCallback(() => setViewMenuOpen(false), [])
+  useDismiss({
+    open: viewMenuOpen,
+    onDismiss: dismissViewMenu,
+    rootRef: viewMenuRef,
+    selectionKey,
+    routeKey: location.pathname,
+  })
+
+  const dismissIoMenu = useCallback(() => setIoMenuOpen(false), [])
+  useDismiss({
+    open: ioMenuOpen,
+    onDismiss: dismissIoMenu,
+    rootRef: ioMenuRef,
+    selectionKey,
+    routeKey: location.pathname,
+  })
+
+  function enterConnectTool() {
+    setTool('connect')
+    setConnectFromId(null)
+    setConnectTargetId(null)
+    try {
+      if (localStorage.getItem('flow-builder-connector-hint') !== '1') {
+        localStorage.setItem('flow-builder-connector-hint', '1')
+        setConnectorHint('Click a node, then another to connect. Esc returns to select.')
+        window.setTimeout(() => setConnectorHint(null), 4000)
+      }
+    } catch {
+      setConnectorHint('Click a node, then another to connect. Esc returns to select.')
+      window.setTimeout(() => setConnectorHint(null), 4000)
+    }
+  }
+
+  function enterSelectTool() {
+    setTool('select')
+    setConnectFromId(null)
+    setConnectTargetId(null)
+  }
 
   const zoomToSelection = useCallback(() => {
     if (!selectedNodeIds.length) return
@@ -298,7 +352,23 @@ function EditorInner() {
           setAssistantOpen(false)
           return
         }
+        if (tool === 'connect') {
+          enterSelectTool()
+          return
+        }
         if (!typing) clearSelection()
+        return
+      }
+
+      if (!typing && !meta && (key === 'c' || key === 'x')) {
+        e.preventDefault()
+        enterConnectTool()
+        return
+      }
+
+      if (!typing && !meta && key === 'v') {
+        e.preventDefault()
+        enterSelectTool()
         return
       }
 
@@ -439,16 +509,8 @@ function EditorInner() {
     fitView,
     zoomToSelection,
     setZoomLevel,
+    tool,
   ])
-
-  useEffect(() => {
-    if (!ioMenuOpen) return
-    function onDoc(e: MouseEvent) {
-      if (!ioMenuRef.current?.contains(e.target as Node)) setIoMenuOpen(false)
-    }
-    document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
-  }, [ioMenuOpen])
 
   const onAddKind = useCallback(
     (kind: NodeKind, options?: { shape?: ShapeType }) => {
@@ -803,6 +865,61 @@ function EditorInner() {
           <div className="editor-toolbar-group">
             <button
               type="button"
+              className={`btn btn-ghost btn-icon ${tool === 'connect' ? 'is-active' : ''}`}
+              aria-label="Connector tool"
+              aria-pressed={tool === 'connect'}
+              title="Connector tool (C)"
+              data-testid="connector-tool"
+              onClick={() => {
+                if (tool === 'connect') enterSelectTool()
+                else enterConnectTool()
+              }}
+            >
+              <Spline size={16} />
+            </button>
+            <div className="view-menu" ref={viewMenuRef}>
+              <button
+                type="button"
+                className="btn btn-ghost btn-icon"
+                aria-label="View settings"
+                aria-haspopup="menu"
+                aria-expanded={viewMenuOpen}
+                title="View settings"
+                data-testid="view-menu"
+                onClick={() => setViewMenuOpen((v) => !v)}
+              >
+                <Eye size={16} />
+              </button>
+              {viewMenuOpen ? (
+                <div className="view-menu-popover" role="menu" aria-label="View settings">
+                  <button
+                    type="button"
+                    role="menuitemcheckbox"
+                    aria-checked={showNodeHints}
+                    className="view-menu-item"
+                    data-testid="show-node-hints"
+                    onClick={() => {
+                      const next = !showNodeHints
+                      setShowNodeHints(next)
+                      writeShowNodeHints(next)
+                    }}
+                  >
+                    {showNodeHints ? 'Hide node hints' : 'Show node hints'}
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitemcheckbox"
+                    aria-checked={showMinimap}
+                    className="view-menu-item"
+                    onClick={toggleMinimap}
+                  >
+                    {showMinimap ? 'Hide minimap' : 'Show minimap'}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+            <button
+              type="button"
               className="btn btn-ghost btn-icon"
               aria-label="Auto layout"
               title="Auto layout"
@@ -975,6 +1092,11 @@ function EditorInner() {
           gridMode={gridMode}
           showMinimap={showMinimap}
           snapToGridEnabled={snapToGridEnabled}
+          tool={tool}
+          connectFromId={connectFromId}
+          onConnectFromChange={setConnectFromId}
+          connectTargetId={connectTargetId}
+          onConnectTargetChange={setConnectTargetId}
           onDropKind={onDropKind}
           emptyAction={
             <button
@@ -986,6 +1108,11 @@ function EditorInner() {
             </button>
           }
         />
+        {connectorHint ? (
+          <div className="toast" role="status" data-testid="connector-hint-toast">
+            {connectorHint}
+          </div>
+        ) : null}
         {assistantOpen && projectId && diagramId ? (
           <AssistantPanel
             open={assistantOpen}

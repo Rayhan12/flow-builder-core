@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
+import { useDismiss } from '../hooks/useDismiss'
+import { useEditorStore } from '../store/editorStore'
 
 export type ZoomMenuActions = {
   zoomIn: () => void
@@ -27,22 +29,17 @@ const PRESETS = [
 export function ZoomMenu({ zoom, actions, hasSelection }: Props) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    function onDown(e: MouseEvent) {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false)
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
+  const selectedNodeIds = useEditorStore((s) => s.selectedNodeIds)
+  const selectedEdgeIds = useEditorStore((s) => s.selectedEdgeIds)
+  const selectionKey = `${selectedNodeIds.join(',')}|${selectedEdgeIds.join(',')}`
+  const dismiss = useCallback(() => setOpen(false), [])
+  useDismiss({
+    open,
+    onDismiss: dismiss,
+    rootRef,
+    selectionKey,
+    routeKey: typeof window !== 'undefined' ? window.location.pathname : undefined,
+  })
 
   return (
     <div className="zoom-menu" ref={rootRef} data-testid="zoom-menu">

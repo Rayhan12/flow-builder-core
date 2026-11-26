@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ChevronDown } from 'lucide-react'
+import { useDismiss } from '../../hooks/useDismiss'
 import { listConnections } from '../providers/connections'
 import { getEnabledModels, getModelCache } from '../providers/modelCache'
 import {
@@ -47,6 +48,13 @@ export function ModelSwitcher({ uid, value, onChange, revision = 0 }: ModelSwitc
     () => value ?? getSelectedModel(uid) ?? resolveActiveSelection(uid),
   )
   const rootRef = useRef<HTMLDivElement>(null)
+  const dismiss = useCallback(() => setOpen(false), [])
+  useDismiss({
+    open,
+    onDismiss: dismiss,
+    rootRef,
+    routeKey: typeof window !== 'undefined' ? window.location.pathname : undefined,
+  })
 
   useEffect(() => {
     if (value) setSelected(value)
@@ -55,15 +63,6 @@ export function ModelSwitcher({ uid, value, onChange, revision = 0 }: ModelSwitc
   useEffect(() => {
     setSelected(getSelectedModel(uid) ?? resolveActiveSelection(uid))
   }, [uid, revision])
-
-  useEffect(() => {
-    if (!open) return
-    function onDoc(e: MouseEvent) {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
-  }, [open])
 
   const enabledRows = useMemo(() => {
     const connections = listConnections(uid)

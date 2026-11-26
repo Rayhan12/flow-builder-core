@@ -1,5 +1,6 @@
 import { MoreHorizontal } from 'lucide-react'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useRef, useState, type ReactNode } from 'react'
+import { useDismiss } from '../hooks/useDismiss'
 
 export type KebabItem = {
   label: string
@@ -16,22 +17,13 @@ type KebabMenuProps = {
 export function KebabMenu({ label, items }: KebabMenuProps) {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    function onDown(e: MouseEvent) {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false)
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setOpen(false)
-    }
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [open])
+  const dismiss = useCallback(() => setOpen(false), [])
+  useDismiss({
+    open,
+    onDismiss: dismiss,
+    rootRef,
+    routeKey: typeof window !== 'undefined' ? window.location.pathname : undefined,
+  })
 
   return (
     <div className="kebab" ref={rootRef}>

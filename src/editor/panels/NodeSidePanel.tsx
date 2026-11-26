@@ -1,4 +1,5 @@
-import { createElement, useMemo, useState } from 'react'
+import { createElement, useCallback, useMemo, useRef, useState } from 'react'
+import { useDismiss } from '../../hooks/useDismiss'
 import {
   BringToFront,
   Copy,
@@ -56,6 +57,16 @@ export function NodeSidePanel() {
   const selectSimilar = useEditorStore((s) => s.selectSimilar)
   const [tab, setTab] = useState<PanelTab>('design')
   const [overflowOpen, setOverflowOpen] = useState(false)
+  const overflowRef = useRef<HTMLDivElement>(null)
+  const selectionKey = `${selectedNodeIds.join(',')}|${selectedEdgeIds.join(',')}`
+  const dismissOverflow = useCallback(() => setOverflowOpen(false), [])
+  useDismiss({
+    open: overflowOpen,
+    onDismiss: dismissOverflow,
+    rootRef: overflowRef,
+    selectionKey,
+    routeKey: typeof window !== 'undefined' ? window.location.pathname : undefined,
+  })
 
   const selectedNodes = useMemo(() => {
     if (!diagram) return [] as DiagramNode[]
@@ -384,7 +395,7 @@ export function NodeSidePanel() {
           <SendToBack size={14} />
           <span>Back</span>
         </button>
-        <div className="side-panel-overflow">
+        <div className="side-panel-overflow" ref={overflowRef}>
           <button
             type="button"
             className="side-panel-action"
@@ -398,7 +409,7 @@ export function NodeSidePanel() {
             <span>More</span>
           </button>
           {overflowOpen ? (
-            <div className="side-panel-overflow-menu" role="menu">
+            <div className="side-panel-overflow-menu" role="menu" data-testid="properties-more-menu">
               <button
                 type="button"
                 role="menuitem"
@@ -449,6 +460,14 @@ export function NodeSidePanel() {
           ) : null}
         </div>
       </div>
+
+      {!multi ? (
+        <section className="side-section" data-testid="what-is-this">
+          <h3 className="side-section-label">What is this?</h3>
+          <p className="side-hint">{meta.description}</p>
+          <p className="field-help">Example: {meta.example}</p>
+        </section>
+      ) : null}
 
       <div className="side-panel-tabs" role="tablist" aria-label="Node panel sections">
         {(
