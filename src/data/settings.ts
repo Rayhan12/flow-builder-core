@@ -1,7 +1,8 @@
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore'
 import { db } from '../lib/firebase'
+import type { ProviderId } from '../ai/providers/types'
 
-export type AiProviderId = 'gemini'
+export type AiProviderId = ProviderId
 
 export type UserSettings = {
   theme: 'light' | 'dark'
@@ -21,15 +22,24 @@ export const GEMINI_MODELS = [
   'gemini-2.0-flash',
 ] as const
 
+const PROVIDER_IDS: ProviderId[] = ['gemini', 'anthropic', 'openai', 'openrouter', 'custom']
+
 function userRef(uid: string) {
   return doc(db, 'users', uid)
+}
+
+function parseProvider(raw: unknown): AiProviderId {
+  if (typeof raw === 'string' && (PROVIDER_IDS as string[]).includes(raw)) {
+    return raw as AiProviderId
+  }
+  return 'gemini'
 }
 
 function parseSettings(raw: unknown): UserSettings {
   if (!raw || typeof raw !== 'object') return { ...DEFAULT_USER_SETTINGS }
   const s = raw as Record<string, unknown>
   const theme = s.theme === 'dark' ? 'dark' : 'light'
-  const aiProvider: AiProviderId = s.aiProvider === 'gemini' ? 'gemini' : 'gemini'
+  const aiProvider = parseProvider(s.aiProvider)
   const aiModel =
     typeof s.aiModel === 'string' && s.aiModel.trim()
       ? s.aiModel.trim()

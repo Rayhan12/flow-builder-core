@@ -1,5 +1,6 @@
-import { getApiKey } from '../ai/keyStorage'
-import { getUserSettings } from '../data/settings'
+import { getConnection } from '../ai/providers/connections'
+import { getModelCache } from '../ai/providers/modelCache'
+import { resolveActiveSelection } from '../ai/providers/selectedModel'
 import { createBrowserDataPort } from './browserDataPort'
 import { generateWithTools } from './geminiTools'
 import { CREATE_FLOW_TOOLS, buildAgentSystemPrompt } from './prompts'
@@ -8,28 +9,31 @@ export type AgentCreateInput = { uid: string; projectId: string; prompt: string 
 export type AgentCreateResult = { projectId: string; diagramId: string }
 
 /**
- * Headless version of the create flow: runs the Gemini tool loop once with
- * the create tools and returns the first diagram it made. Has the same shape
- * as the dashboard's `AiCreateHandler` (`{ uid, projectId, prompt }` in,
- * `{ projectId, diagramId }` out), so it can be passed straight to
- * `AppDataProvider onGenerate` instead of the empty-diagram stub.
+ * Headless version of the create flow: runs the tool loop once with the create
+ * tools and returns the first diagram it made.
  */
 export async function agentCreateDiagram({
   uid,
   projectId,
   prompt,
 }: AgentCreateInput): Promise<AgentCreateResult> {
-  const apiKey = getApiKey(uid)
-  if (!apiKey) throw new Error('Add your Gemini API key in Settings first')
-  const settings = await getUserSettings(uid)
+  const active = resolveActiveSelection(uid)
+  const conn = active ? getConnection(uid, active.connectionId) : null
+  if (!active || !conn) {
+    throw new Error('Add an AI provider key in Settings first')
+  }
   const port = createBrowserDataPort(uid, {
     layout: async (nodes, edges) =>
       (await import('../editor/layout')).autoLayoutDiagram(nodes, edges, 'DOWN'),
   })
   const project = await port.getProject(projectId)
+  const cache = getModelCache(uid, conn.id)
+  const modelStatus = cache?.models.find((m) => m.id === active.model)
   const result = await generateWithTools({
-    apiKey,
-    model: settings.aiModel,
+    apiKey: conn.apiKey,
+    model: active.model,
+    connection: conn,
+    supportsTools: modelStatus?.supportsTools ?? true,
     system: buildAgentSystemPrompt({
       mode: 'create',
       project: { id: projectId, name: project?.name ?? projectId },

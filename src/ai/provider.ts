@@ -1,3 +1,7 @@
+/**
+ * Legacy editor-assistant provider surface.
+ * New code should use `src/ai/providers` (LLMProvider with chat/listModels/ping).
+ */
 export type ChatMessage = {
   role: 'user' | 'assistant'
   text: string
