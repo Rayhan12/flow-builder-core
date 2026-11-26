@@ -123,11 +123,11 @@ test.describe('EDITOR3 text, shapes, palette, collapse', () => {
     await signUpAndOpenEditor(page, 'ed3-palette')
 
     await page.getByTestId('palette-search').fill('Parallel')
-    await expect(page.locator('.palette-item', { hasText: 'Parallel split' })).toBeVisible()
-    await expect(page.locator('.palette-item', { hasText: 'Parallel join' })).toBeVisible()
+    await expect(page.locator('[data-palette-item="parallelSplit"]')).toBeVisible()
+    await expect(page.locator('[data-palette-item="parallelJoin"]')).toBeVisible()
 
     await page.getByTestId('palette-search').fill('Lookup')
-    await expect(page.locator('.palette-item', { hasText: 'Lookup table' })).toBeVisible()
+    await expect(page.locator('[data-palette-item="lookup"]')).toBeVisible()
 
     await page.getByTestId('palette-search').fill('')
     await page.screenshot({ path: path.join(RUNS, 'fix-full-palette.png') })

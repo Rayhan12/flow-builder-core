@@ -100,7 +100,7 @@ describe('EditorPage', () => {
     renderEditor()
 
     expect(await screen.findByRole('button', { name: 'Draft' })).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: /Decision/i }))
+    await user.click(document.querySelector('[data-palette-item="decision"]') as HTMLElement)
 
     await waitFor(() => {
       expect(useEditorStore.getState().diagram?.nodes).toHaveLength(1)
