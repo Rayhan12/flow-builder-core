@@ -1,5 +1,12 @@
 import { create } from 'zustand'
-import { isContainerKind, type Diagram, type DiagramEdge, type DiagramNode, type NodeKind } from '../schema'
+import {
+  isContainerKind,
+  type Diagram,
+  type DiagramEdge,
+  type DiagramNode,
+  type NodeKind,
+  type ShapeType,
+} from '../schema'
 import { createNodeOfKind, newEdgeId, newNodeId } from '../editor/kinds'
 import { applyZOrder, type ZOrderAction } from '../editor/zOrder'
 
@@ -47,7 +54,11 @@ type EditorState = {
   setDescription: (description: string) => void
   setViewport: (viewport: Diagram['viewport']) => void
 
-  addNode: (kind: NodeKind, position: { x: number; y: number }) => string | null
+  addNode: (
+    kind: NodeKind,
+    position: { x: number; y: number },
+    options?: { shape?: ShapeType },
+  ) => string | null
   updateNode: (id: string, patch: Partial<DiagramNode>) => void
   updateNodes: (ids: string[], patch: Partial<DiagramNode>) => void
   replaceNode: (node: DiagramNode) => void
@@ -248,11 +259,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       }
     }),
 
-  addNode: (kind, position) => {
+  addNode: (kind, position, options) => {
     let createdId: string | null = null
     set((state) =>
       withHistory(state, (d) => {
-        const node = createNodeOfKind(kind, position)
+        const node = createNodeOfKind(kind, position, options?.shape ? { shape: options.shape } : {})
         createdId = node.id
         return { ...d, nodes: [...d.nodes, node] }
       }),

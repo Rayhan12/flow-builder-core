@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   dropPositionFromFlowPoint,
+  encodePalettePayload,
   isPaletteDrag,
   PALETTE_MIME,
   PALETTE_MIME_TEXT,
+  parsePalettePayload,
   readPaletteDragKind,
   setPaletteDragData,
 } from './paletteDrop'
@@ -54,5 +56,16 @@ describe('paletteDrop', () => {
     const textOnly = mockDataTransfer()
     textOnly.setData(PALETTE_MIME_TEXT, 'step')
     expect(readPaletteDragKind(textOnly)).toBe('step')
+  })
+
+  it('encodes and parses shape palette payloads', () => {
+    expect(encodePalettePayload({ kind: 'shape', shape: 'hexagon' })).toBe('shape:hexagon')
+    expect(parsePalettePayload('shape:diamond')).toEqual({ kind: 'shape', shape: 'diamond' })
+    expect(parsePalettePayload('loop')).toEqual({ kind: 'loop' })
+    expect(parsePalettePayload('shape:nope')).toBeNull()
+
+    const dt = mockDataTransfer()
+    setPaletteDragData(dt, { kind: 'shape', shape: 'cylinder' })
+    expect(readPaletteDragKind(dt)).toBe('shape:cylinder')
   })
 })

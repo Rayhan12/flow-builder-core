@@ -11,7 +11,7 @@ import { decisionSizeForBranches } from '../decisionLayout'
 import { newNodeId } from '../kinds'
 import { ConditionRows } from './ConditionBuilder'
 
-type DecisionNode = Extract<DiagramNode, { kind: 'decision' }>
+type DecisionNode = Extract<DiagramNode, { kind: 'decision' | 'switch' }>
 
 type Props = {
   node: DecisionNode

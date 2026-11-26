@@ -36,7 +36,7 @@ import {
   DIAGRAM_SIZE_WARN_BYTES,
   estimateDiagramBytes,
 } from '../editor/fixtures/largeDiagram'
-import { dropPositionFromFlowPoint } from '../editor/paletteDrop'
+import { dropPositionFromFlowPoint, parsePalettePayload } from '../editor/paletteDrop'
 import { getLastFlowPoint } from '../editor/pointerPosition'
 import { DEFAULT_NODE_HEIGHT, DEFAULT_NODE_WIDTH } from '../editor/alignment'
 import {
@@ -52,8 +52,7 @@ import { NodeSearch, type NodeSearchResult } from '../editor/NodeSearch'
 import { NodePalette } from '../editor/palette/NodePalette'
 import { LayersPanel } from '../editor/panels/LayersPanel'
 import { NodeSidePanel } from '../editor/panels/NodeSidePanel'
-import type { NodeKind } from '../schema'
-import { NodeKindSchema } from '../schema'
+import type { NodeKind, ShapeType } from '../schema'
 import { useEditorStore } from '../store/editorStore'
 import { useTheme } from '../theme/useTheme'
 
@@ -311,29 +310,37 @@ function EditorInner() {
   }, [ioMenuOpen])
 
   const onAddKind = useCallback(
-    (kind: NodeKind) => {
+    (kind: NodeKind, options?: { shape?: ShapeType }) => {
       const cursor = getLastFlowPoint()
       if (cursor) {
-        addNode(kind, dropPositionFromFlowPoint(cursor, {
-          nodeWidth: DEFAULT_NODE_WIDTH,
-          nodeHeight: DEFAULT_NODE_HEIGHT,
-        }))
+        addNode(
+          kind,
+          dropPositionFromFlowPoint(cursor, {
+            nodeWidth: DEFAULT_NODE_WIDTH,
+            nodeHeight: DEFAULT_NODE_HEIGHT,
+          }),
+          options,
+        )
         return
       }
       const offset = useEditorStore.getState().diagram?.nodes.length ?? 0
-      addNode(kind, {
-        x: 120 + (offset % 4) * 280,
-        y: 80 + Math.floor(offset / 4) * 160,
-      })
+      addNode(
+        kind,
+        {
+          x: 120 + (offset % 4) * 280,
+          y: 80 + Math.floor(offset / 4) * 160,
+        },
+        options,
+      )
     },
     [addNode],
   )
 
   const onDropKind = useCallback(
     (kind: string, position: { x: number; y: number }) => {
-      const parsed = NodeKindSchema.safeParse(kind)
-      if (!parsed.success) return
-      addNode(parsed.data, position)
+      const payload = parsePalettePayload(kind)
+      if (!payload) return
+      addNode(payload.kind, position, payload.shape ? { shape: payload.shape } : undefined)
     },
     [addNode],
   )

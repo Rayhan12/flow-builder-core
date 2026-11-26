@@ -1,10 +1,10 @@
 import { NodeResizer, type NodeProps } from '@xyflow/react'
-import { ChevronDown, ChevronRight } from 'lucide-react'
 import { memo, useMemo, type CSSProperties } from 'react'
 import { useEditorStore } from '../../store/editorStore'
 import { resolveColor } from '../colors'
 import type { FlowNode } from '../flowTypes'
 import { KIND_META } from '../kinds'
+import { CollapseHeader } from '../ui/CollapseToggle'
 import { SideHandles } from './SideHandles'
 
 function GroupNodeInner(props: NodeProps<FlowNode>) {
@@ -47,40 +47,40 @@ function GroupNodeInner(props: NodeProps<FlowNode>) {
         }
         data-testid="group-card"
       >
-        <div className="flow-group-header" data-testid="group-header">
-          <button
-            type="button"
-            className="flow-group-collapse"
-            aria-label={collapsed ? 'Expand group' : 'Collapse group'}
-            data-testid="group-collapse"
-            onClick={(e) => {
-              e.stopPropagation()
-              replaceNode({
-                ...node,
-                data: { ...node.data, collapsed: !collapsed },
-              })
-            }}
-          >
-            {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-          </button>
-          <input
-            className="flow-group-title"
-            value={node.data.label}
-            aria-label="Group title"
-            data-testid="group-title"
-            onClick={(e) => e.stopPropagation()}
-            onChange={(e) =>
-              replaceNode({
-                ...node,
-                label: e.target.value,
-                data: { ...node.data, label: e.target.value },
-              })
-            }
-          />
-          <span className="flow-group-count" title="Child nodes">
-            {childCount}
-          </span>
-        </div>
+        <CollapseHeader
+          open={!collapsed}
+          onToggle={() =>
+            replaceNode({
+              ...node,
+              data: { ...node.data, collapsed: !collapsed },
+            })
+          }
+          testId="group-header"
+          toggleTestId="group-collapse"
+          ariaLabel={collapsed ? 'Expand group' : 'Collapse group'}
+          className="flow-group-header"
+          label={
+            <input
+              className="flow-group-title"
+              value={node.data.label}
+              aria-label="Group title"
+              data-testid="group-title"
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) =>
+                replaceNode({
+                  ...node,
+                  label: e.target.value,
+                  data: { ...node.data, label: e.target.value },
+                })
+              }
+            />
+          }
+          trailing={
+            <span className="flow-group-count" title="Child nodes">
+              {childCount}
+            </span>
+          }
+        />
         <SideHandles />
       </div>
     </>

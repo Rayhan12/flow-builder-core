@@ -9,12 +9,13 @@ function DecisionNodeInner(props: NodeProps<FlowNode>) {
   const updateNodeInternals = useUpdateNodeInternals()
   const resizeNode = useEditorStore((s) => s.resizeNode)
   const node = props.data.diagramNode
-  const branches = node.kind === 'decision' ? node.data.branches : []
+  const isBranching = node.kind === 'decision' || node.kind === 'switch'
+  const branches = isBranching ? node.data.branches : []
   const branchHandleSide =
-    node.kind === 'decision' && node.data.branchHandleSide === 'right' ? 'right' : 'bottom'
+    isBranching && node.data.branchHandleSide === 'right' ? 'right' : 'bottom'
 
   useEffect(() => {
-    if (node.kind !== 'decision') return
+    if (!isBranching) return
     const next = decisionSizeForBranches(branches.length)
     const cur = node.size
     if (!cur || cur.w !== next.w || cur.h !== next.h) {
@@ -29,7 +30,7 @@ function DecisionNodeInner(props: NodeProps<FlowNode>) {
     }
   }, [
     node.id,
-    node.kind,
+    isBranching,
     branches.length,
     branchHandleSide,
     node.size,
