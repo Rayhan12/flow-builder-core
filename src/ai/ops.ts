@@ -67,6 +67,16 @@ const AddEdgeOpSchema = z.object({
     label: z.string().max(200).optional(),
     color: z.string().optional(),
     type: z.enum(['elbow', 'straight', 'curved']).optional(),
+    waypoints: z
+      .array(
+        z.object({
+          x: z.number().finite(),
+          y: z.number().finite(),
+          routed: z.boolean().optional(),
+        }),
+      )
+      .max(32)
+      .optional(),
     startMarker: z.enum(['none', 'arrow', 'arrowFilled', 'circle', 'diamond']).optional(),
     endMarker: z.enum(['none', 'arrow', 'arrowFilled', 'circle', 'diamond']).optional(),
     style: z
@@ -76,6 +86,7 @@ const AddEdgeOpSchema = z.object({
         dash: z.enum(['solid', 'dashed']).optional(),
       })
       .optional(),
+    labelPosition: z.number().finite().min(0).max(1).optional(),
   }),
 })
 
@@ -297,6 +308,12 @@ export function applyOps(diagram: Diagram, ops: EditOp[]): ApplyResult {
           targetHandle: op.edge.targetHandle,
           label: op.edge.label,
           color: op.edge.color,
+          type: op.edge.type,
+          waypoints: op.edge.waypoints,
+          startMarker: op.edge.startMarker,
+          endMarker: op.edge.endMarker,
+          style: op.edge.style,
+          labelPosition: op.edge.labelPosition,
         }
         const parsed = DiagramEdgeSchema.safeParse(edge)
         if (!parsed.success) return { ok: false, error: 'Invalid addEdge' }
@@ -453,6 +470,7 @@ export function applyReplace(diagram: Diagram, rawDiagram: unknown, summary: str
       return { ok: false, error: `Invalid edge at index ${i}` }
     }
     const obj = item as Record<string, unknown>
+    // Keep every DiagramEdge field through create/update/replace (style, markers, etc.).
     const edge = {
       id: typeof obj.id === 'string' ? obj.id : newEdgeId(),
       source: obj.source,
@@ -461,6 +479,12 @@ export function applyReplace(diagram: Diagram, rawDiagram: unknown, summary: str
       targetHandle: typeof obj.targetHandle === 'string' ? obj.targetHandle : undefined,
       label: typeof obj.label === 'string' ? obj.label : undefined,
       color: typeof obj.color === 'string' ? obj.color : undefined,
+      type: obj.type,
+      waypoints: obj.waypoints,
+      startMarker: obj.startMarker,
+      endMarker: obj.endMarker,
+      style: obj.style,
+      labelPosition: obj.labelPosition,
     }
     const parsed = DiagramEdgeSchema.safeParse(edge)
     if (!parsed.success) {

@@ -167,6 +167,107 @@ describe.skipIf(!run)('MCP server (emulator)', () => {
     expect(hijack).toMatchObject({ ok: false, code: 'not_found' })
   })
 
+  it('preserves edge style through create_diagram, update_diagram and get_diagram', async () => {
+    const port = createAdminDataPort(USER_A)
+    const project = await port.createProject({ name: 'Edge style' })
+    const created = await executeTool(
+      'create_diagram',
+      {
+        projectId: project.id,
+        title: 'Styled',
+        diagram: {
+          title: 'Styled',
+          nodes: [
+            { id: 'a', kind: 'start', label: 'A' },
+            { id: 'b', kind: 'end', label: 'B' },
+          ],
+          edges: [
+            {
+              id: 'e1',
+              source: 'a',
+              target: 'b',
+              type: 'elbow',
+              startMarker: 'circle',
+              endMarker: 'diamond',
+              label: 'go',
+              labelPosition: 0.6,
+              style: { dash: 'dashed', width: 3 },
+            },
+          ],
+        },
+      },
+      port,
+    )
+    expect(created.ok).toBe(true)
+    if (!created.ok) return
+    const diagramId = (created.data as { id: string }).id
+
+    const read = await executeTool('get_diagram', { projectId: project.id, diagramId }, port)
+    expect(read.ok).toBe(true)
+    if (!read.ok) return
+    const body = (read.data as { diagram: { edges: Array<Record<string, unknown>> } }).diagram
+    expect(body.edges[0]?.style).toEqual({ dash: 'dashed', width: 3 })
+    expect(body.edges[0]?.startMarker).toBe('circle')
+    expect(body.edges[0]?.endMarker).toBe('diamond')
+    expect(body.edges[0]?.labelPosition).toBe(0.6)
+
+    const updated = await executeTool(
+      'update_diagram',
+      {
+        projectId: project.id,
+        diagramId,
+        diagram: {
+          title: 'Styled 2',
+          nodes: [
+            { id: 'a', kind: 'start', label: 'A' },
+            { id: 'b', kind: 'end', label: 'B' },
+          ],
+          edges: [
+            {
+              id: 'e1',
+              source: 'a',
+              target: 'b',
+              style: { dash: 'dashed', width: 3 },
+              endMarker: 'arrowFilled',
+            },
+          ],
+        },
+      },
+      port,
+    )
+    expect(updated.ok).toBe(true)
+
+    const read2 = await executeTool('get_diagram', { projectId: project.id, diagramId }, port)
+    expect(read2.ok).toBe(true)
+    if (!read2.ok) return
+    const body2 = (read2.data as { diagram: { edges: Array<Record<string, unknown>> } }).diagram
+    expect(body2.edges[0]?.style).toEqual({ dash: 'dashed', width: 3 })
+    expect(body2.edges[0]?.endMarker).toBe('arrowFilled')
+
+    const edited = await executeTool(
+      'apply_diagram_edits',
+      {
+        projectId: project.id,
+        diagramId,
+        ops: [
+          {
+            op: 'updateEdge',
+            id: 'e1',
+            patch: { style: { dash: 'dashed', width: 2 }, label: 'next' },
+          },
+        ],
+      },
+      port,
+    )
+    expect(edited.ok).toBe(true)
+    const read3 = await executeTool('get_diagram', { projectId: project.id, diagramId }, port)
+    expect(read3.ok).toBe(true)
+    if (!read3.ok) return
+    const body3 = (read3.data as { diagram: { edges: Array<Record<string, unknown>> } }).diagram
+    expect(body3.edges[0]?.style).toEqual({ dash: 'dashed', width: 2 })
+    expect(body3.edges[0]?.label).toBe('next')
+  })
+
   it('apply_diagram_edits adding nodes produces a non-overlapping layout', async () => {
     const { hasOverlappingNodes } = await import('../../shared/layout/index.ts')
     const port = createAdminDataPort(USER_A)

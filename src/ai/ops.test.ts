@@ -144,6 +144,72 @@ describe('applyReplace', () => {
       expect(node.data.branches.length).toBeGreaterThan(0)
     }
   })
+
+  it('keeps edge style, markers, type and labelPosition through replace', () => {
+    const diagram = createEmptyDiagram('d1', 'Old')
+    const result = applyReplace(
+      diagram,
+      {
+        title: 'Styled',
+        nodes: [
+          { id: 'a', kind: 'start', label: 'A' },
+          { id: 'b', kind: 'end', label: 'B' },
+        ],
+        edges: [
+          {
+            id: 'e1',
+            source: 'a',
+            target: 'b',
+            type: 'curved',
+            label: 'go',
+            labelPosition: 0.7,
+            startMarker: 'circle',
+            endMarker: 'diamond',
+            style: { dash: 'dashed', width: 3 },
+          },
+        ],
+      },
+      'Styled edge',
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const edge = result.diagram.edges[0]
+    expect(edge.style).toEqual({ dash: 'dashed', width: 3 })
+    expect(edge.startMarker).toBe('circle')
+    expect(edge.endMarker).toBe('diamond')
+    expect(edge.type).toBe('curved')
+    expect(edge.label).toBe('go')
+    expect(edge.labelPosition).toBe(0.7)
+  })
+})
+
+describe('applyOps edge style', () => {
+  it('keeps style and markers on addEdge', () => {
+    const diagram = createEmptyDiagram('d1', 'Test')
+    const result = applyOps(diagram, [
+      { op: 'addNode', node: { id: 'a', kind: 'start', label: 'A' } },
+      { op: 'addNode', node: { id: 'b', kind: 'end', label: 'B' } },
+      {
+        op: 'addEdge',
+        edge: {
+          id: 'e1',
+          source: 'a',
+          target: 'b',
+          type: 'elbow',
+          startMarker: 'arrow',
+          endMarker: 'diamond',
+          style: { dash: 'dashed', width: 3 },
+          labelPosition: 0.4,
+        },
+      },
+    ])
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const edge = result.diagram.edges[0]
+    expect(edge.style).toEqual({ dash: 'dashed', width: 3 })
+    expect(edge.endMarker).toBe('diamond')
+    expect(edge.labelPosition).toBe(0.4)
+  })
 })
 
 describe('previewFromResponse', () => {
