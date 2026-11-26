@@ -8,7 +8,6 @@ import {
   defaultNodeSize,
 } from './nodeSizes.ts'
 import {
-  MIN_EDGE_GAP,
   pathPointsForEdge,
   routeEdgesIndependently,
   segmentHitsRect,
@@ -367,47 +366,25 @@ export function resolveConflicts<
     if (pts) edge.waypoints = pts
   }
 
-  // Second pass: if an edge still clips a node, bump the mid channel.
+  // Second pass: if an edge still clips a node, re-route with a higher back-edge
+  // / elbow slot (never a shared centre bus — that creates bow-tie markers).
   let report = detectConflicts(nextNodes, nextEdges, { margin, direction })
   if (report.edgesThroughNodes.length) {
-    const bumped = new Map<string, number>()
-    for (const hit of report.edgesThroughNodes) {
-      bumped.set(hit.edgeId, (bumped.get(hit.edgeId) ?? 0) + 1)
+    const bumpedIds = [...new Set(report.edgesThroughNodes.map((h) => h.edgeId))]
+    const sizeOf = (n: LayoutNodeLike) => defaultNodeSize(n)
+    // Include neighbours so slot assignment stays consistent, then overwrite only bumped.
+    const rerouted = routeEdgesIndependently(nextNodes, nextEdges, sizeOf, direction)
+    for (const id of bumpedIds) {
+      const edge = nextEdges.find((e) => e.id === id)
+      if (!edge) continue
+      const pts = rerouted.get(id)
+      if (pts) edge.waypoints = pts
     }
+    // One more independent pass after positions settled.
+    const again = routeEdgesIndependently(nextNodes, nextEdges, sizeOf, direction)
     for (const edge of nextEdges) {
-      const n = bumped.get(edge.id)
-      if (!n) continue
-      const src = byId.get(edge.source)
-      const tgt = byId.get(edge.target)
-      if (!src || !tgt) continue
-      const slot = 3 + n
-      const start = {
-        x: src.position.x + defaultNodeSize(src).w / 2,
-        y: src.position.y + defaultNodeSize(src).h,
-      }
-      const end = {
-        x: tgt.position.x + defaultNodeSize(tgt).w / 2,
-        y: tgt.position.y,
-      }
-      const midY =
-        direction === 'DOWN'
-          ? (start.y + end.y) / 2 + n * MIN_EDGE_GAP
-          : (start.y + end.y) / 2
-      const midX =
-        direction === 'RIGHT'
-          ? (start.x + end.x) / 2 + n * MIN_EDGE_GAP
-          : (start.x + end.x) / 2
-      edge.waypoints =
-        direction === 'DOWN'
-          ? [
-              { x: start.x, y: midY, routed: true },
-              { x: end.x, y: midY, routed: true },
-            ]
-          : [
-              { x: midX, y: start.y, routed: true },
-              { x: midX, y: end.y, routed: true },
-            ]
-      void slot
+      const pts = again.get(edge.id)
+      if (pts) edge.waypoints = pts
     }
     report = detectConflicts(nextNodes, nextEdges, { margin, direction })
   }

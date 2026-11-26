@@ -130,10 +130,73 @@ describe('merchant onboarding stress layout', () => {
     expect(report.nodeOverlaps).toHaveLength(0)
     expect(report.edgesThroughNodes).toHaveLength(0)
 
-    // Long end labels keep full text width budget.
-    const declined = result.nodes.find((n) => n.id === 'n19')!
+    // Long end labels keep full text width budget (no ellipsis truncation).
+    const declined = result.nodes.find((n) => n.id === 'decl2')!
     expect(defaultNodeSize(declined).w).toBeGreaterThanOrEqual(176)
-    expect(declined.label).toBe('Account Declined')
+    expect(declined.label).toBe('Account Declined by admin')
+    const susp = result.nodes.find((n) => n.id === 'susp')!
+    expect(susp.label).toContain('Suspended State')
+  })
+
+  it('routes the wait -> review back edge around the side', async () => {
+    const { nodes, edges } = buildMerchantOnboardingFixture()
+    const result = await layoutDiagram(nodes, edges, { direction: 'DOWN' })
+    const back = result.edges.find((e) => e.id === 'e21')!
+    const points = pathPointsForEdge(back, result.nodes, (n) => defaultNodeSize(n), 'DOWN')
+    const risk = result.nodes.find((n) => n.id === 'risk')!
+    const riskBox = contentBox(risk)
+    // Back-edge polyline must not cut through the Risk decision card.
+    for (let i = 1; i < points.length; i += 1) {
+      const seg = {
+        x1: points[i - 1].x,
+        y1: points[i - 1].y,
+        x2: points[i].x,
+        y2: points[i].y,
+      }
+      expect(segmentHitsRect(seg, riskBox, 1)).toBe(false)
+    }
+    // Wait must not overlap Risk after layout.
+    const wait = result.nodes.find((n) => n.id === 'wait')!
+    const report = detectConflicts(result.nodes, result.edges)
+    expect(
+      report.nodeOverlaps.some(
+        (o) =>
+          (o.a === 'risk' && o.b === 'wait') || (o.a === 'wait' && o.b === 'risk'),
+      ),
+    ).toBe(false)
+    void wait
+  })
+
+  it('layouts the 40-node two-loop variant without overlaps or shared buses', async () => {
+    const { buildMerchantOnboarding40Fixture } = await import('./merchantOnboardingFixture.ts')
+    const { nodes, edges } = buildMerchantOnboarding40Fixture()
+    expect(nodes.length).toBeGreaterThanOrEqual(40)
+    const result = await layoutDiagram(nodes, edges, { direction: 'DOWN' })
+    assertNoNodeOverlaps(result.nodes)
+    assertNoSharedBuses(result.nodes, result.edges)
+    // Both cycle edges must clear the decision/approval cards they loop around.
+    for (const edgeId of ['e21', 'ex6']) {
+      const edge = result.edges.find((e) => e.id === edgeId)!
+      const points = pathPointsForEdge(edge, result.nodes, (n) => defaultNodeSize(n), 'DOWN')
+      for (const blockId of ['risk', 'fraudReview', 'admin']) {
+        const block = result.nodes.find((n) => n.id === blockId)
+        if (!block) continue
+        if (block.id === edge.source || block.id === edge.target) continue
+        const box = contentBox(block)
+        for (let i = 1; i < points.length; i += 1) {
+          const seg = {
+            x1: points[i - 1].x,
+            y1: points[i - 1].y,
+            x2: points[i].x,
+            y2: points[i].y,
+          }
+          expect(
+            segmentHitsRect(seg, box, 1),
+            `${edgeId} through ${blockId}`,
+          ).toBe(false)
+        }
+      }
+    }
   })
 
   it('legacy bus routing can be requested for before screenshots', async () => {

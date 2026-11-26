@@ -67,8 +67,9 @@ export function collinearOverlapLength(a: Segment, b: Segment): number {
 }
 
 /**
- * Detect whether two edges from different source handles share a collinear
- * overlapping segment longer than `maxShare` (default 4px).
+ * Detect whether two edges share a collinear overlapping segment longer than
+ * `maxShare` (default 4px). Direction is ignored: opposite-direction edges on
+ * the same channel count as a shared bus (bow-tie / head-on arrows).
  */
 export function edgesShareBus(
   a: Point[],
@@ -83,6 +84,30 @@ export function edgesShareBus(
     }
   }
   return false
+}
+
+/** Drop zero-length and backtracking stubs so markers only sit at true ends. */
+export function sanitizePolyline(points: Point[]): Point[] {
+  if (points.length <= 1) return points.map((p) => ({ ...p }))
+  const out: Point[] = [{ ...points[0] }]
+  for (let i = 1; i < points.length; i += 1) {
+    const prev = out[out.length - 1]
+    const cur = points[i]
+    if (nearlyEqual(prev.x, cur.x) && nearlyEqual(prev.y, cur.y)) continue
+    // Collapse collinear middle points on the same axis.
+    if (out.length >= 2) {
+      const a = out[out.length - 2]
+      const b = prev
+      const horiz = nearlyEqual(a.y, b.y) && nearlyEqual(b.y, cur.y)
+      const vert = nearlyEqual(a.x, b.x) && nearlyEqual(b.x, cur.x)
+      if (horiz || vert) {
+        out[out.length - 1] = { ...cur, routed: cur.routed ?? b.routed }
+        continue
+      }
+    }
+    out.push({ ...cur })
+  }
+  return out
 }
 
 function markRouted(points: Point[]): Point[] {
@@ -246,6 +271,147 @@ export function estimateTargetPoint(
  * edges so they never share a horizontal (or vertical) bus. Approach points
  * near the target are also offset so joins do not collapse into one vertical.
  */
+/** True when the edge points against the primary flow direction (a cycle / back edge). */
+export function isBackEdge(
+  start: Point,
+  end: Point,
+  direction: 'DOWN' | 'RIGHT',
+): boolean {
+  if (direction === 'DOWN') return end.y < start.y - 8
+  return end.x < start.x - 8
+}
+
+/** Side-route a back edge around the bounding box of obstacles (never through cards). */
+export function buildBackEdgeDetour(
+  start: Point,
+  end: Point,
+  direction: 'DOWN' | 'RIGHT',
+  obstacles: Array<{ x: number; y: number; w: number; h: number }>,
+  slot = 0,
+  gap = MIN_EDGE_GAP,
+): Point[] {
+  const pad = gap * 2 + slot * gap
+  // Stagger the final approach so it never shares the target's centre axis with
+  // outbound edges (opposite-direction shared segments cause bow-tie markers).
+  const approach = (slot % 2 === 0 ? -1 : 1) * (24 + slot * 10)
+  if (direction === 'DOWN') {
+    const maxRight = Math.max(
+      start.x,
+      end.x,
+      ...obstacles.map((o) => o.x + o.w),
+      start.x,
+    )
+    const minLeft = Math.min(
+      start.x,
+      end.x,
+      ...obstacles.map((o) => o.x),
+      start.x,
+    )
+    const maxBottom = Math.max(
+      start.y,
+      end.y,
+      ...obstacles.map((o) => o.y + o.h),
+      start.y,
+    )
+    // Alternate left/right so multiple back edges do not share a channel.
+    const useRight = slot % 2 === 0
+    const railX = useRight ? maxRight + pad + 24 : minLeft - pad - 24
+    // Run the long horizontal below every obstacle so it cannot clip a sibling card.
+    const highwayY = maxBottom + pad + 24
+    const endX = end.x + approach
+    return markRouted(
+      sanitizePolyline([
+        { x: start.x, y: start.y + gap },
+        { x: start.x, y: highwayY },
+        { x: railX, y: highwayY },
+        { x: railX, y: end.y - gap },
+        { x: endX, y: end.y - gap },
+        { x: endX, y: end.y },
+      ]),
+    )
+  }
+  const maxBottom = Math.max(
+    start.y,
+    end.y,
+    ...obstacles.map((o) => o.y + o.h),
+    start.y,
+  )
+  const minTop = Math.min(start.y, end.y, ...obstacles.map((o) => o.y), start.y)
+  const maxRight = Math.max(
+    start.x,
+    end.x,
+    ...obstacles.map((o) => o.x + o.w),
+    start.x,
+  )
+  const useBottom = slot % 2 === 0
+  const railY = useBottom ? maxBottom + pad + 24 : minTop - pad - 24
+  const highwayX = maxRight + pad + 24
+  const endY = end.y + approach
+  return markRouted(
+    sanitizePolyline([
+      { x: start.x + gap, y: start.y },
+      { x: highwayX, y: start.y },
+      { x: highwayX, y: railY },
+      { x: end.x - gap, y: railY },
+      { x: end.x - gap, y: endY },
+      { x: end.x, y: endY },
+    ]),
+  )
+}
+
+/** Side route that hugs the right/bottom of local obstacles without a full highway. */
+export function buildMildSideRoute(
+  start: Point,
+  end: Point,
+  direction: 'DOWN' | 'RIGHT',
+  obstacles: Array<{ x: number; y: number; w: number; h: number }>,
+  slot = 0,
+  gap = MIN_EDGE_GAP,
+): Point[] {
+  const pad = gap + slot * gap
+  const approach = (slot % 2 === 0 ? -1 : 1) * (16 + (slot % 5) * 8)
+  if (direction === 'DOWN') {
+    const maxRight = Math.max(
+      start.x,
+      end.x,
+      ...obstacles.map((o) => o.x + o.w),
+      start.x,
+    )
+    const minLeft = Math.min(start.x, end.x, ...obstacles.map((o) => o.x), start.x)
+    const useRight = slot % 2 === 0
+    const railX = useRight ? maxRight + pad + 16 : minLeft - pad - 16
+    const endX = end.x + approach
+    return markRouted(
+      sanitizePolyline([
+        { x: start.x, y: start.y + gap },
+        { x: railX, y: start.y + gap },
+        { x: railX, y: end.y - gap },
+        { x: endX, y: end.y - gap },
+        { x: endX, y: end.y },
+      ]),
+    )
+  }
+  const maxBottom = Math.max(
+    start.y,
+    end.y,
+    ...obstacles.map((o) => o.y + o.h),
+    start.y,
+  )
+  const minTop = Math.min(start.y, end.y, ...obstacles.map((o) => o.y), start.y)
+  const useBottom = slot % 2 === 0
+  const railY = useBottom ? maxBottom + pad + 16 : minTop - pad - 16
+  const endY = end.y + approach
+  return markRouted(
+    sanitizePolyline([
+      { x: start.x + gap, y: start.y },
+      { x: start.x + gap, y: railY },
+      { x: end.x - gap, y: railY },
+      { x: end.x - gap, y: endY },
+      { x: end.x, y: endY },
+    ]),
+  )
+}
+
 export function buildUniqueElbow(
   start: Point,
   end: Point,
@@ -264,19 +430,23 @@ export function buildUniqueElbow(
     const midY = (start.y + end.y) / 2 + signed
     const endX = end.x + approach
     // Leave a short exclusive vertical stub: never drop midY onto another edge's lane.
-    return markRouted([
-      { x: start.x, y: midY },
-      { x: endX, y: midY },
-      { x: endX, y: end.y },
-    ])
+    return markRouted(
+      sanitizePolyline([
+        { x: start.x, y: midY },
+        { x: endX, y: midY },
+        { x: endX, y: end.y },
+      ]),
+    )
   }
   const midX = (start.x + end.x) / 2 + signed
   const endY = end.y + approach
-  return markRouted([
-    { x: midX, y: start.y },
-    { x: midX, y: endY },
-    { x: end.x, y: endY },
-  ])
+  return markRouted(
+    sanitizePolyline([
+      { x: midX, y: start.y },
+      { x: midX, y: endY },
+      { x: end.x, y: endY },
+    ]),
+  )
 }
 
 function obstaclesForEdge(
@@ -352,6 +522,8 @@ export function routeEdgesIndependently(
       if (ah !== bh) return ah.localeCompare(bh)
       return a.id.localeCompare(b.id)
     })
+    // Count geometric reverse edges for stable left/right rail assignment.
+    let backSlot = 0
     ranked.forEach((e, slot) => {
       const src = byId.get(e.source)
       const tgt = byId.get(e.target)
@@ -359,44 +531,33 @@ export function routeEdgesIndependently(
       const start = estimateSourcePoint(src, sizeOf(src), e.sourceHandle, direction)
       const end = estimateTargetPoint(tgt, sizeOf(tgt), undefined, direction)
       const obstacles = obstaclesForEdge(e, nodes, sizeOf)
-      let bends = buildUniqueElbow(start, end, direction, slot)
+      const reverse = isBackEdge(start, end, direction)
+      let bends = reverse
+        ? buildMildSideRoute(start, end, direction, obstacles, slot)
+        : buildUniqueElbow(start, end, direction, slot)
       // Bump the channel until the polyline clears foreign node boxes.
-      for (let bump = 1; bump <= 12 && bendsHitObstacle(start, end, bends, obstacles); bump += 1) {
-        bends = buildUniqueElbow(start, end, direction, slot + bump * 2)
+      for (
+        let bump = 1;
+        bump <= 12 && bendsHitObstacle(start, end, bends, obstacles);
+        bump += 1
+      ) {
+        bends = reverse
+          ? buildMildSideRoute(start, end, direction, obstacles, slot + bump * 2)
+          : buildUniqueElbow(start, end, direction, slot + bump * 2)
       }
-      // Side-route around stubborn obstacles: go out past the widest blocker.
+      // Full highway detour only when mild routing still clips (true cycle edges).
       if (bendsHitObstacle(start, end, bends, obstacles)) {
-        if (direction === 'DOWN') {
-          const maxRight = Math.max(
-            start.x,
-            end.x,
-            ...obstacles.map((o) => o.x + o.w + MIN_EDGE_GAP),
-          )
-          bends = markRouted([
-            { x: start.x, y: start.y + MIN_EDGE_GAP },
-            { x: maxRight, y: start.y + MIN_EDGE_GAP },
-            { x: maxRight, y: end.y - MIN_EDGE_GAP },
-            { x: end.x, y: end.y - MIN_EDGE_GAP },
-          ])
-        } else {
-          const maxBottom = Math.max(
-            start.y,
-            end.y,
-            ...obstacles.map((o) => o.y + o.h + MIN_EDGE_GAP),
-          )
-          bends = markRouted([
-            { x: start.x + MIN_EDGE_GAP, y: start.y },
-            { x: start.x + MIN_EDGE_GAP, y: maxBottom },
-            { x: end.x - MIN_EDGE_GAP, y: maxBottom },
-            { x: end.x - MIN_EDGE_GAP, y: end.y },
-          ])
+        bends = buildBackEdgeDetour(start, end, direction, obstacles, backSlot)
+        backSlot += 1
+        for (let bump = 1; bump <= 4 && bendsHitObstacle(start, end, bends, obstacles); bump += 1) {
+          bends = buildBackEdgeDetour(start, end, direction, obstacles, backSlot + bump)
         }
       }
-      waypoints.set(e.id, bends)
+      waypoints.set(e.id, sanitizePolyline(bends))
     })
   }
 
-  // Final separation pass for any leftover shared channels.
+  // Final separation pass for any leftover shared channels (incl. opposite dir).
   const forSeparate = edges.map((e) => {
     const src = byId.get(e.source)
     const tgt = byId.get(e.target)
@@ -411,14 +572,14 @@ export function routeEdgesIndependently(
       id: e.id,
       source: e.source,
       sourceHandle: e.sourceHandle,
-      points: [start, ...bends, end],
+      points: sanitizePolyline([start, ...bends, end]),
     }
   })
   const separated = separateSharedSegments(forSeparate, gapFromDirection(direction))
   for (const e of edges) {
     const full = separated.get(e.id)
     if (!full || full.length < 2) continue
-    waypoints.set(e.id, full.slice(1, -1))
+    waypoints.set(e.id, sanitizePolyline(full).slice(1, -1))
   }
   return waypoints
 }
@@ -469,5 +630,5 @@ export function pathPointsForEdge(
   const start = estimateSourcePoint(src, sizeOf(src), edge.sourceHandle, direction)
   const end = estimateTargetPoint(tgt, sizeOf(tgt), undefined, direction)
   const bends = edge.waypoints ?? []
-  return [start, ...bends, end]
+  return sanitizePolyline([start, ...bends, end])
 }
