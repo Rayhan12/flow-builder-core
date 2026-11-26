@@ -1,4 +1,4 @@
-import { ReactFlowProvider, useReactFlow, useViewport } from '@xyflow/react'
+import { ReactFlowProvider, useNodesInitialized, useReactFlow, useViewport } from '@xyflow/react'
 import {
   ArrowLeft,
   Download,
@@ -179,6 +179,7 @@ function EditorInner() {
   const removeNodes = useEditorStore((s) => s.removeNodes)
 
   const [loading, setLoading] = useState(true)
+  const [fitRequest, setFitRequest] = useState(0)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleDraft, setTitleDraft] = useState('')
@@ -314,19 +315,7 @@ function EditorInner() {
           record.doc.fitPending === true ||
           record.doc.layoutPending === true ||
           nodesPartlyOffScreen(record.doc.nodes)
-        if (needsFit) {
-          requestAnimationFrame(() => {
-            void fitView({ padding: 0.2, duration: 280 })
-            useEditorStore.setState((s) => {
-              if (!s.diagram) return s
-              if (!s.diagram.fitPending && !s.diagram.layoutPending) return s
-              return {
-                diagram: { ...s.diagram, fitPending: false, layoutPending: false },
-                saveStatus: 'dirty' as const,
-              }
-            })
-          })
-        }
+        if (needsFit) setFitRequest((n) => n + 1)
       } catch (err) {
         if (cancelled) return
         setLoadError(err instanceof Error ? err.message : 'Could not open diagram')
@@ -340,11 +329,18 @@ function EditorInner() {
     }
   }, [uid, projectId, diagramId, load, reset, fitView])
 
-  // After AI/MCP edits set fitPending, zoom to fit once.
+  // Zoom to fit once nodes are measured: on open when the doc asks for it
+  // (fitPending/layoutPending or off-screen nodes) and after AI/MCP edits.
+  // Fitting before React Flow measures nodes gives a wrong zoom.
+  const nodesInitialized = useNodesInitialized()
+  const handledFitRequest = useRef(0)
   useEffect(() => {
-    if (!diagram?.fitPending) return
+    const wantsRequest = fitRequest > handledFitRequest.current
+    if (!wantsRequest && !diagram?.fitPending) return
+    if (!nodesInitialized) return
+    handledFitRequest.current = fitRequest
     requestAnimationFrame(() => {
-      void fitView({ padding: 0.2, duration: 280 })
+      void fitView({ padding: 0.2, duration: 280, maxZoom: 1.25 })
       useEditorStore.setState((s) => {
         if (!s.diagram?.fitPending && !s.diagram?.layoutPending) return s
         return {
@@ -353,7 +349,7 @@ function EditorInner() {
         }
       })
     })
-  }, [diagram?.fitPending, fitView])
+  }, [fitRequest, diagram?.fitPending, nodesInitialized, fitView])
 
   const persist = useCallback(async () => {
     const state = useEditorStore.getState()

@@ -171,6 +171,50 @@ function assertNoOverlap(
 }
 
 test.describe('Auto layout', () => {
+  test('opening a diagram with far-off or pending-fit nodes zooms to fit after nodes are measured', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await signUpAndOpenEditor(page)
+    await page.evaluate(() => {
+      window.__FB_DISABLE_AUTO_LAYOUT__ = true
+      const s = (window as unknown as { __FLOW_BUILDER_STORE__?: StoreApi }).__FLOW_BUILDER_STORE__!
+      const current = s.getState().diagram
+      if (!current) throw new Error('no diagram')
+      s.getState().replaceDiagramContent({
+        ...current,
+        nodes: [
+          { id: 'f1', kind: 'start', label: 'Far start', position: { x: 2400, y: 1800 } },
+          { id: 'f2', kind: 'step', label: 'Far step', position: { x: 2400, y: 2000 } },
+          { id: 'f3', kind: 'end', label: 'Far end', position: { x: 2400, y: 2200 } },
+        ],
+        edges: [
+          { id: 'fe1', source: 'f1', target: 'f2' },
+          { id: 'fe2', source: 'f2', target: 'f3' },
+        ],
+      })
+    })
+    await expect(page.locator('.react-flow__node')).toHaveCount(3, { timeout: 10_000 })
+    await page.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(page.getByText('Saved', { exact: true })).toBeVisible({ timeout: 15_000 })
+    await page.reload()
+    await expect(page.locator('.react-flow__node')).toHaveCount(3, { timeout: 15_000 })
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => {
+            const nodes = [...document.querySelectorAll('.react-flow__node')] as HTMLElement[]
+            const pane = document.querySelector('.react-flow') as HTMLElement | null
+            if (!pane || nodes.length !== 3) return false
+            const pr = pane.getBoundingClientRect()
+            return nodes.every((n) => {
+              const r = n.getBoundingClientRect()
+              return r.left >= pr.left && r.right <= pr.right && r.top >= pr.top && r.bottom <= pr.bottom
+            })
+          }),
+        { timeout: 5_000 },
+      )
+      .toBe(true)
+  })
+
   test('AI generate (mocked), Auto-arrange, incremental, undo', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
 
