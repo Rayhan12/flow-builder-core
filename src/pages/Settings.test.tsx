@@ -36,7 +36,9 @@ vi.mock('../data/settings', () => ({
 vi.mock('../ai/providers/probe', () => ({
   listAndProbeModels: vi.fn().mockResolvedValue({
     connectionId: 'x',
-    checkedAt: Date.now(),
+    keyFingerprint: 'abcd1234abcd1234',
+    lastCheckedAt: Date.now(),
+    enabledModelIds: ['gemini-2.5-flash'],
     models: [
       {
         id: 'gemini-2.5-flash',

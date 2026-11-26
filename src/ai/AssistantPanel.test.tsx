@@ -5,9 +5,36 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createEmptyDiagram } from '../schema'
 import { useEditorStore } from '../store/editorStore'
 import { ThemeProvider } from '../theme/ThemeProvider'
-import { setApiKey, forgetApiKey } from './keyStorage'
+import { forgetApiKey } from './keyStorage'
+import { upsertConnection } from './providers/connections'
+import { computeKeyFingerprint, saveModelCache } from './providers/modelCache'
+import { setSelectedModel } from './providers/selectedModel'
 import { AssistantPanel } from './AssistantPanel'
 import type { LLMProvider } from './provider'
+
+async function seedAiReady(uid: string, apiKey: string) {
+  const conn = upsertConnection(uid, {
+    provider: 'gemini',
+    label: 'Gemini',
+    apiKey,
+  })
+  const fp = await computeKeyFingerprint(conn)
+  upsertConnection(uid, { ...conn, keyFingerprint: fp })
+  saveModelCache(uid, {
+    connectionId: conn.id,
+    keyFingerprint: fp,
+    lastCheckedAt: Date.now(),
+    enabledModelIds: ['gemini-2.5-flash'],
+    models: [
+      { id: 'gemini-2.5-flash', usable: true, supportsTools: true, checkedAt: Date.now() },
+    ],
+  })
+  setSelectedModel(uid, {
+    connectionId: conn.id,
+    provider: 'gemini',
+    model: 'gemini-2.5-flash',
+  })
+}
 
 vi.mock('../auth/useAuth', () => ({
   useAuth: () => ({
@@ -40,10 +67,20 @@ vi.mock('../data/messages', () => ({
 }))
 
 vi.mock('../ai/providers/probe', () => ({
-  listAndProbeModels: vi.fn().mockResolvedValue({
-    connectionId: 'x',
-    checkedAt: Date.now(),
-    models: [{ id: 'gemini-2.5-flash', usable: true, supportsTools: true, checkedAt: Date.now() }],
+  listAndProbeModels: vi.fn().mockImplementation(async (uid: string, conn: { id: string }) => {
+    const { computeKeyFingerprint, saveModelCache } = await import('./providers/modelCache')
+    const fp = await computeKeyFingerprint(conn as never)
+    const cache = {
+      connectionId: conn.id,
+      keyFingerprint: fp,
+      lastCheckedAt: Date.now(),
+      enabledModelIds: ['gemini-2.5-flash'],
+      models: [
+        { id: 'gemini-2.5-flash', usable: true, supportsTools: true, checkedAt: Date.now() },
+      ],
+    }
+    saveModelCache(uid, cache)
+    return cache
   }),
   recheckModel: vi.fn(),
 }))
@@ -120,13 +157,15 @@ describe('AssistantPanel', () => {
     await screen.findByTestId('ai-missing-key')
     await user.type(screen.getByPlaceholderText(/Paste your API key/i), 'key-from-panel')
     await user.click(screen.getByRole('button', { name: 'Save key' }))
+    await screen.findByTestId('ai-save-enabled')
+    await user.click(screen.getByTestId('ai-save-enabled'))
     await waitFor(() => {
       expect(screen.queryByTestId('ai-missing-key')).not.toBeInTheDocument()
     })
   })
 
   it('rejects invalid AI output and offers try again', async () => {
-    setApiKey('u1', 'test-key')
+    await seedAiReady('u1', 'test-key')
     const provider: LLMProvider = {
       id: 'mock',
       listModels: async () => ['mock'],
@@ -144,7 +183,7 @@ describe('AssistantPanel', () => {
   })
 
   it('shows a diff preview for a replace reply and applies it', async () => {
-    setApiKey('u1', 'test-key')
+    await seedAiReady('u1', 'test-key')
     const provider: LLMProvider = {
       id: 'mock',
       listModels: async () => ['mock'],

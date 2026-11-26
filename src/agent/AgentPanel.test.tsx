@@ -4,10 +4,37 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryDataPort } from '../../shared/tools/memoryPort'
 import { executeTool } from '../../shared/tools'
-import { forgetApiKey, setApiKey } from '../ai/keyStorage'
+import { forgetApiKey } from '../ai/keyStorage'
+import { upsertConnection } from '../ai/providers/connections'
+import { computeKeyFingerprint, saveModelCache } from '../ai/providers/modelCache'
+import { setSelectedModel } from '../ai/providers/selectedModel'
 import { ThemeProvider } from '../theme/ThemeProvider'
 import { AgentPanel, type AgentPanelProps } from './AgentPanel'
 import type { GenerateWithToolsOptions } from './geminiTools'
+
+async function seedAiReady(uid: string, apiKey: string) {
+  const conn = upsertConnection(uid, {
+    provider: 'gemini',
+    label: 'Gemini',
+    apiKey,
+  })
+  const fp = await computeKeyFingerprint(conn)
+  upsertConnection(uid, { ...conn, keyFingerprint: fp })
+  saveModelCache(uid, {
+    connectionId: conn.id,
+    keyFingerprint: fp,
+    lastCheckedAt: Date.now(),
+    enabledModelIds: ['gemini-2.5-flash'],
+    models: [
+      { id: 'gemini-2.5-flash', usable: true, supportsTools: true, checkedAt: Date.now() },
+    ],
+  })
+  setSelectedModel(uid, {
+    connectionId: conn.id,
+    provider: 'gemini',
+    model: 'gemini-2.5-flash',
+  })
+}
 
 vi.mock('../auth/useAuth', () => ({
   useAuth: () => ({
@@ -37,10 +64,20 @@ vi.mock('../data/settings', () => ({
 }))
 
 vi.mock('../ai/providers/probe', () => ({
-  listAndProbeModels: vi.fn().mockResolvedValue({
-    connectionId: 'x',
-    checkedAt: Date.now(),
-    models: [{ id: 'gemini-2.5-flash', usable: true, supportsTools: true, checkedAt: Date.now() }],
+  listAndProbeModels: vi.fn().mockImplementation(async (uid: string, conn: { id: string }) => {
+    const { computeKeyFingerprint, saveModelCache } = await import('../ai/providers/modelCache')
+    const fp = await computeKeyFingerprint(conn as never)
+    const cache = {
+      connectionId: conn.id,
+      keyFingerprint: fp,
+      lastCheckedAt: Date.now(),
+      enabledModelIds: ['gemini-2.5-flash'],
+      models: [
+        { id: 'gemini-2.5-flash', usable: true, supportsTools: true, checkedAt: Date.now() },
+      ],
+    }
+    saveModelCache(uid, cache)
+    return cache
   }),
   recheckModel: vi.fn(),
 }))
@@ -122,13 +159,15 @@ describe('AgentPanel', () => {
 
     await user.type(screen.getByPlaceholderText(/Paste your API key/i), 'secret-key')
     await user.click(screen.getByRole('button', { name: /save key/i }))
+    await screen.findByTestId('ai-save-enabled')
+    await user.click(screen.getByTestId('ai-save-enabled'))
 
     await waitFor(() => expect(screen.getByLabelText('Message')).toBeEnabled())
     expect(screen.queryByTestId('ai-missing-key')).not.toBeInTheDocument()
   })
 
   it('runs a prompt, shows a tool call card with an Open link and saves the chat', async () => {
-    setApiKey('u1', 'secret-key')
+    await seedAiReady('u1', 'secret-key')
     const user = userEvent.setup()
     const onDataChanged = vi.fn()
     const generate = vi.fn(createFlowGenerate())
@@ -162,7 +201,7 @@ describe('AgentPanel', () => {
   })
 
   it('sends initialPrompt automatically and starts a fresh chat', async () => {
-    setApiKey('u1', 'secret-key')
+    await seedAiReady('u1', 'secret-key')
     const generate = vi.fn(createFlowGenerate())
     renderPanel({ generate, initialPrompt: 'Build a KYC flow', initialProjectId: 'p_x' })
 
@@ -183,13 +222,15 @@ describe('AgentPanel', () => {
 
     await user.type(screen.getByPlaceholderText(/Paste your API key/i), 'secret-key')
     await user.click(screen.getByRole('button', { name: /save key/i }))
+    await screen.findByTestId('ai-save-enabled')
+    await user.click(screen.getByTestId('ai-save-enabled'))
 
     expect(await screen.findByText('I created the Refund flow.')).toBeInTheDocument()
     expect(generate).toHaveBeenCalledOnce()
   })
 
   it('limits tools in create mode', async () => {
-    setApiKey('u1', 'secret-key')
+    await seedAiReady('u1', 'secret-key')
     const generate = vi.fn(createFlowGenerate())
     renderPanel({ generate, mode: 'create', variant: 'dialog', initialPrompt: 'A flow' })
     await screen.findByText('I created the Refund flow.')
@@ -201,7 +242,7 @@ describe('AgentPanel', () => {
   })
 
   it('asks for confirmation before a destructive tool and respects Cancel', async () => {
-    setApiKey('u1', 'secret-key')
+    await seedAiReady('u1', 'secret-key')
     const user = userEvent.setup()
     let outcome: boolean | undefined
     const generate: Generate = async (opts) => {
@@ -226,7 +267,7 @@ describe('AgentPanel', () => {
   })
 
   it('approves a destructive tool with Delete', async () => {
-    setApiKey('u1', 'secret-key')
+    await seedAiReady('u1', 'secret-key')
     const user = userEvent.setup()
     const generate: Generate = async (opts) => {
       const ok = await opts.confirmDestructive?.({ name: 'delete_diagram', args: {} })
@@ -240,7 +281,7 @@ describe('AgentPanel', () => {
   })
 
   it('loads the latest chat history on open', async () => {
-    setApiKey('u1', 'secret-key')
+    await seedAiReady('u1', 'secret-key')
     chats.listAgentChats.mockResolvedValue([
       { id: 'c_old', title: 'Old', messageCount: 2, createdAt: null, updatedAt: null },
     ])
@@ -271,7 +312,7 @@ describe('AgentPanel', () => {
   })
 
   it('shows an error bubble when the model call fails', async () => {
-    setApiKey('u1', 'secret-key')
+    await seedAiReady('u1', 'secret-key')
     const user = userEvent.setup()
     renderPanel({
       generate: async () => {
@@ -284,7 +325,7 @@ describe('AgentPanel', () => {
   })
 
   it('keeps working when chat history cannot be saved', async () => {
-    setApiKey('u1', 'secret-key')
+    await seedAiReady('u1', 'secret-key')
     chats.createAgentChat.mockRejectedValue(new Error('permission-denied'))
     const user = userEvent.setup()
     renderPanel({ generate: createFlowGenerate() })

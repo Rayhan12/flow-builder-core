@@ -9,9 +9,15 @@ import {
 import { geminiProvider } from './geminiProvider'
 import { mapStatusToReason, mapPool, ProviderCorsError } from './http'
 import { parseJsonToolFallback } from './jsonFallback'
-import { getModelCache, saveModelCache } from './modelCache'
+import {
+  cacheStorageKey,
+  computeKeyFingerprint,
+  getModelCache,
+  saveModelCache,
+} from './modelCache'
 import { isChatModel, openaiProvider, openAiStyleHeaders, customProvider } from './openaiCompatible'
 import { listAndProbeModels } from './probe'
+import { resolveActiveSelection, setSelectedModel } from './selectedModel'
 import type { AiConnection } from './types'
 
 function conn(partial: Partial<AiConnection> & Pick<AiConnection, 'provider'>): AiConnection {
@@ -284,7 +290,7 @@ describe('JSON tool fallback', () => {
 })
 
 describe('connections + cache', () => {
-  it('stores connections per uid and caches probe results', async () => {
+  it('stores connections per uid and caches probe results with fingerprint key', async () => {
     upsertConnection('u1', { provider: 'gemini', label: 'G', apiKey: 'abc' })
     expect(listConnections('u1')).toHaveLength(1)
     expect(listConnections('u2')).toHaveLength(0)
@@ -312,19 +318,33 @@ describe('connections + cache', () => {
     )
 
     const c = listConnections('u1')[0]!
-    const cache = await listAndProbeModels('u1', c, { concurrency: 1, delayMs: 0 })
+    const fp = await computeKeyFingerprint(c)
+    const cache = await listAndProbeModels('u1', { ...c, keyFingerprint: fp }, {
+      concurrency: 1,
+      delayMs: 0,
+    })
     expect(cache.models[0]?.usable).toBe(true)
-    expect(getModelCache('u1', c.id)?.models[0]?.usable).toBe(true)
+    expect(cache.keyFingerprint).toBe(fp)
+    expect(cache.enabledModelIds).toContain('gemini-2.5-flash')
+    expect(getModelCache('u1', { ...c, keyFingerprint: fp })?.models[0]?.usable).toBe(true)
+    const stored = localStorage.getItem(cacheStorageKey('u1', c.id, fp))
+    expect(stored).toBeTruthy()
+    expect(stored).not.toContain('abc')
+    expect(stored).not.toContain(c.apiKey)
 
     removeConnection('u1', c.id)
     expect(listConnections('u1')).toHaveLength(0)
   })
 
-  it('re-check updates a single model in cache', () => {
-    saveConnections('u1', [conn({ provider: 'openai', id: 'c1' })])
+  it('re-check updates a single model in cache', async () => {
+    const c = conn({ provider: 'openai', id: 'c1', apiKey: 'sk-test' })
+    const fp = await computeKeyFingerprint(c)
+    saveConnections('u1', [{ ...c, keyFingerprint: fp }])
     saveModelCache('u1', {
       connectionId: 'c1',
-      checkedAt: 1,
+      keyFingerprint: fp,
+      lastCheckedAt: 1,
+      enabledModelIds: [],
       models: [
         {
           id: 'gpt-4o-mini',
@@ -335,7 +355,168 @@ describe('connections + cache', () => {
         },
       ],
     })
-    expect(getModelCache('u1', 'c1')?.models[0]?.usable).toBe(false)
+    expect(getModelCache('u1', { ...c, keyFingerprint: fp })?.models[0]?.usable).toBe(false)
+  })
+
+  it('throws on list failure instead of substituting FALLBACK_MODELS', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 401,
+        text: async () => 'unauthorized',
+      }),
+    )
+    const c = conn({ provider: 'openai', apiKey: 'bad' })
+    const fp = await computeKeyFingerprint(c)
+    await expect(
+      listAndProbeModels('u1', { ...c, keyFingerprint: fp }, { concurrency: 1, delayMs: 0 }),
+    ).rejects.toThrow()
+  })
+
+  it('paginates Anthropic listModels with after_id', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [{ id: 'claude-a' }],
+          has_more: true,
+          last_id: 'claude-a',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          data: [{ id: 'claude-b' }],
+          has_more: false,
+        }),
+      })
+    vi.stubGlobal('fetch', fetchMock)
+    const models = await anthropicProvider.listModels(conn({ provider: 'anthropic' }))
+    expect(models.map((m) => m.id)).toEqual(['claude-a', 'claude-b'])
+    expect(String(fetchMock.mock.calls[1]![0])).toContain('after_id=claude-a')
+  })
+
+  it('paginates Gemini listModels with nextPageToken', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          models: [
+            { name: 'models/gemini-a', supportedGenerationMethods: ['generateContent'] },
+          ],
+          nextPageToken: 'tok2',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          models: [
+            { name: 'models/gemini-b', supportedGenerationMethods: ['generateContent'] },
+          ],
+        }),
+      })
+    vi.stubGlobal('fetch', fetchMock)
+    const models = await geminiProvider.listModels(conn({ provider: 'gemini' }))
+    expect(models.map((m) => m.id)).toEqual(['gemini-a', 'gemini-b'])
+    expect(String(fetchMock.mock.calls[1]![0])).toContain('pageToken=tok2')
+  })
+
+  it('defaults enabled to usable+tools and refresh preserves selection marking New', async () => {
+    const c = conn({ provider: 'openai', id: 'c1', apiKey: 'sk-1' })
+    const fp = await computeKeyFingerprint(c)
+    const withFp = { ...c, keyFingerprint: fp }
+    saveConnections('u1', [withFp])
+
+    const pingOk = {
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: 'yes' } }] }),
+    }
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            data: [{ id: 'gpt-4o-mini' }, { id: 'gpt-4o' }],
+          }),
+        })
+        .mockResolvedValueOnce(pingOk)
+        .mockResolvedValueOnce(pingOk),
+    )
+    const first = await listAndProbeModels('u1', withFp, {
+      mode: 'initial',
+      concurrency: 1,
+      delayMs: 0,
+    })
+    expect(first.enabledModelIds.sort()).toEqual(['gpt-4o', 'gpt-4o-mini'])
+
+    // Uncheck gpt-4o
+    saveModelCache('u1', { ...first, enabledModelIds: ['gpt-4o-mini'] })
+
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            data: [{ id: 'gpt-4o-mini' }, { id: 'gpt-4o' }, { id: 'gpt-4.1' }],
+          }),
+        })
+        .mockResolvedValue(pingOk),
+    )
+    const refreshed = await listAndProbeModels('u1', withFp, {
+      mode: 'refresh',
+      concurrency: 1,
+      delayMs: 0,
+    })
+    expect(refreshed.enabledModelIds).toEqual(['gpt-4o-mini'])
+    expect(refreshed.models.find((m) => m.id === 'gpt-4.1')?.isNew).toBe(true)
+    expect(refreshed.enabledModelIds).not.toContain('gpt-4.1')
+  })
+
+  it('resolveActiveSelection uses only enabled stored models', async () => {
+    const c = conn({ provider: 'openai', id: 'c1', apiKey: 'sk-1' })
+    const fp = await computeKeyFingerprint(c)
+    const withFp = { ...c, keyFingerprint: fp }
+    saveConnections('u1', [withFp])
+    saveModelCache('u1', {
+      connectionId: 'c1',
+      keyFingerprint: fp,
+      lastCheckedAt: Date.now(),
+      enabledModelIds: ['gpt-4o-mini'],
+      models: [
+        { id: 'gpt-4o-mini', usable: true, supportsTools: true, checkedAt: 1 },
+        { id: 'gpt-4o', usable: true, supportsTools: true, checkedAt: 1 },
+      ],
+    })
+    setSelectedModel('u1', { connectionId: 'c1', provider: 'openai', model: 'gpt-4o' })
+    expect(resolveActiveSelection('u1')).toEqual({
+      connectionId: 'c1',
+      provider: 'openai',
+      model: 'gpt-4o-mini',
+    })
+  })
+
+  it('key change invalidates cache for the new fingerprint', async () => {
+    const c1 = conn({ provider: 'openai', id: 'c1', apiKey: 'sk-old' })
+    const fp1 = await computeKeyFingerprint(c1)
+    saveConnections('u1', [{ ...c1, keyFingerprint: fp1 }])
+    saveModelCache('u1', {
+      connectionId: 'c1',
+      keyFingerprint: fp1,
+      lastCheckedAt: 1,
+      enabledModelIds: ['gpt-4o-mini'],
+      models: [{ id: 'gpt-4o-mini', usable: true, supportsTools: true, checkedAt: 1 }],
+    })
+    const c2 = { ...c1, apiKey: 'sk-new' }
+    const fp2 = await computeKeyFingerprint(c2)
+    expect(fp1).not.toBe(fp2)
+    expect(getModelCache('u1', { ...c2, keyFingerprint: fp2 })).toBeNull()
   })
 })
 
