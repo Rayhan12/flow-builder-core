@@ -148,9 +148,11 @@ test.describe('Flow fix routing and conflicts', () => {
     })
     expect(overlapCount).toBe(0)
 
-    // Long labels visible (not truncated to "Account Decli...").
-    await expect(page.getByText('Account Declined', { exact: true })).toBeVisible()
-    await expect(page.getByText('Suspended State', { exact: true })).toBeVisible()
+    // Long labels visible in full (no ellipsis truncation).
+    await expect(page.getByText('Account Declined by admin', { exact: true })).toBeVisible()
+    await expect(
+      page.getByText('Suspended State pending investigation', { exact: true }),
+    ).toBeVisible()
 
     await page.screenshot({ path: path.join(RUNS, 'flowfix-after.png'), fullPage: false })
 
@@ -158,13 +160,13 @@ test.describe('Flow fix routing and conflicts', () => {
     await page.evaluate(() => {
       const s = (window as unknown as { __FLOW_BUILDER_STORE__?: StoreApi }).__FLOW_BUILDER_STORE__!
       const d = s.getState().diagram!
-      const a = d.nodes.find((n) => n.id === 'n19')
-      const b = d.nodes.find((n) => n.id === 'n20')
+      const a = d.nodes.find((n) => n.id === 'decl2')
+      const b = d.nodes.find((n) => n.id === 'susp')
       if (!a || !b) throw new Error('end nodes missing')
       s.getState().moveNodes(
         [
-          { id: 'n19', position: { x: 100, y: 100 } },
-          { id: 'n20', position: { x: 110, y: 110 } },
+          { id: 'decl2', position: { x: 100, y: 100 } },
+          { id: 'susp', position: { x: 110, y: 110 } },
         ],
         true,
       )
