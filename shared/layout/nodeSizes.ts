@@ -19,10 +19,11 @@ export const DECISION_BRANCH_ROW_HEIGHT = 44
 export const BRANCH_CHAR_PX = 7
 export const BRANCH_CHIP_PAD = 24
 
-export const NODE_NODE_SPACING = 60
-export const LAYER_SPACING = 100
+export const NODE_NODE_SPACING = 72
+export const LAYER_SPACING = 112
 export const EDGE_EDGE_SPACING = 16
-export const EDGE_NODE_SPACING = 20
+/** Keep ELK edge-node spacing at or above router EDGE_CLEARANCE (16). */
+export const EDGE_NODE_SPACING = 24
 export const GROUP_PADDING = 32
 export const GROUP_HEADER = 36
 export const SIDE_COLUMN_GAP = 80

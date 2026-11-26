@@ -3,6 +3,8 @@
  * on separate channels, and fall back to simple elbows that never share a bus.
  */
 
+import { routeEdgesWithRouter } from './router.ts'
+
 export type Point = { x: number; y: number; routed?: boolean }
 
 export type RoutedEdge = {
@@ -21,7 +23,8 @@ export type SizedNode = {
   data?: unknown
 }
 
-export const MIN_EDGE_GAP = 12
+/** Minimum gap between parallel edge channels (nudging / separation). */
+export const MIN_EDGE_GAP = 10
 
 type Segment = { x1: number; y1: number; x2: number; y2: number }
 
@@ -132,8 +135,8 @@ export function extractElkBendPoints(section: {
 }
 
 /**
- * Offset shared horizontal/vertical bus segments so edges from different
- * sources stay at least `gap` apart.
+ * Offset shared or near-parallel horizontal/vertical segments so edges from
+ * different sources stay at least `gap` apart (libavoid-style nudging).
  */
 export function separateSharedSegments(
   edges: Array<{ id: string; source: string; sourceHandle?: string; points: Point[] }>,
@@ -147,8 +150,39 @@ export function separateSharedSegments(
     )
   }
 
+  function parallelOverlap(
+    a: Segment,
+    b: Segment,
+  ): { horiz: boolean; dist: number; overlap: number } | null {
+    const aHoriz = nearlyEqual(a.y1, a.y2)
+    const bHoriz = nearlyEqual(b.y1, b.y2)
+    if (aHoriz && bHoriz) {
+      const dist = Math.abs(a.y1 - b.y1)
+      const aMin = Math.min(a.x1, a.x2)
+      const aMax = Math.max(a.x1, a.x2)
+      const bMin = Math.min(b.x1, b.x2)
+      const bMax = Math.max(b.x1, b.x2)
+      const overlap = Math.max(0, Math.min(aMax, bMax) - Math.max(aMin, bMin))
+      if (overlap > 4 && dist < gap) return { horiz: true, dist, overlap }
+      return null
+    }
+    const aVert = nearlyEqual(a.x1, a.x2)
+    const bVert = nearlyEqual(b.x1, b.x2)
+    if (aVert && bVert) {
+      const dist = Math.abs(a.x1 - b.x1)
+      const aMin = Math.min(a.y1, a.y2)
+      const aMax = Math.max(a.y1, a.y2)
+      const bMin = Math.min(b.y1, b.y2)
+      const bMax = Math.max(b.y1, b.y2)
+      const overlap = Math.max(0, Math.min(aMax, bMax) - Math.max(aMin, bMin))
+      if (overlap > 4 && dist < gap) return { horiz: false, dist, overlap }
+      return null
+    }
+    return null
+  }
+
   // Several passes: nudging one pair can create a new shared channel with a third edge.
-  for (let pass = 0; pass < 6; pass += 1) {
+  for (let pass = 0; pass < 8; pass += 1) {
     let moved = false
     for (let i = 0; i < edges.length; i += 1) {
       for (let j = i + 1; j < edges.length; j += 1) {
@@ -166,14 +200,12 @@ export function separateSharedSegments(
           for (let bi = 0; bi < segsB.length; bi += 1) {
             const segA = segsA[ai]
             const segB = segsB[bi]
-            const overlap = collinearOverlapLength(segA, segB)
-            if (overlap <= 4) continue
-            const horiz = nearlyEqual(segA.y1, segA.y2)
-            const offset =
-              ((i + j + pass) % 2 === 0 ? 1 : -1) *
-              (gap / 2 + ((i + j + pass) % 3) * (gap / 2) + pass * (gap / 3))
-            if (horiz) {
-              // Nudge only the overlapping horizontal run (not the whole polyline).
+            const hit = parallelOverlap(segA, segB)
+            if (!hit) continue
+            const need = gap - hit.dist
+            const sign = ((i + j + pass) % 2 === 0 ? 1 : -1)
+            const offset = sign * Math.max(need, gap / 2) + sign * pass * 2
+            if (hit.horiz) {
               const y = segB.y1
               const minX = Math.min(segB.x1, segB.x2) - 0.5
               const maxX = Math.max(segB.x1, segB.x2) + 0.5
@@ -466,43 +498,9 @@ export function buildUniqueElbow(
   )
 }
 
-function obstaclesForEdge(
-  edge: RoutedEdge,
-  nodes: SizedNode[],
-  sizeOf: (n: SizedNode) => { w: number; h: number },
-): Array<{ x: number; y: number; w: number; h: number }> {
-  return nodes
-    .filter((n) => n.id !== edge.source && n.id !== edge.target)
-    .map((n) => {
-      const s = sizeOf(n)
-      return { x: n.position.x, y: n.position.y, w: s.w, h: s.h }
-    })
-}
-
-function bendsHitObstacle(
-  start: Point,
-  end: Point,
-  bends: Point[],
-  obstacles: Array<{ x: number; y: number; w: number; h: number }>,
-): boolean {
-  const points = [start, ...bends, end]
-  for (let i = 1; i < points.length; i += 1) {
-    const seg = {
-      x1: points[i - 1].x,
-      y1: points[i - 1].y,
-      x2: points[i].x,
-      y2: points[i].y,
-    }
-    for (const box of obstacles) {
-      if (segmentHitsRect(seg, box, 2)) return true
-    }
-  }
-  return false
-}
-
 /**
- * Route every edge with its own channel. Used after node positions are final
- * (including branch-order fixes) so waypoints match the placed graph.
+ * Route every edge with the shared orthogonal visibility-graph + A* router.
+ * Used after node positions are final so waypoints match the placed graph.
  */
 export function routeEdgesIndependently(
   nodes: SizedNode[],
@@ -510,104 +508,7 @@ export function routeEdgesIndependently(
   sizeOf: (n: SizedNode) => { w: number; h: number },
   direction: 'DOWN' | 'RIGHT' = 'DOWN',
 ): Map<string, Point[]> {
-  const byId = new Map(nodes.map((n) => [n.id, n]))
-  // Group edges that share a source→layer so slots stay local.
-  const groupKey = (e: RoutedEdge) => {
-    const src = byId.get(e.source)
-    const tgt = byId.get(e.target)
-    if (!src || !tgt) return e.id
-    const layer =
-      direction === 'DOWN'
-        ? `${Math.round(src.position.y)}->${Math.round(tgt.position.y)}`
-        : `${Math.round(src.position.x)}->${Math.round(tgt.position.x)}`
-    return layer
-  }
-  const groups = new Map<string, RoutedEdge[]>()
-  for (const e of edges) {
-    const key = groupKey(e)
-    const list = groups.get(key) ?? []
-    list.push(e)
-    groups.set(key, list)
-  }
-
-  const waypoints = new Map<string, Point[]>()
-  for (const list of groups.values()) {
-    // Stable slot by source handle / source id so branch chips keep order.
-    const ranked = [...list].sort((a, b) => {
-      const ah = a.sourceHandle ?? ''
-      const bh = b.sourceHandle ?? ''
-      if (ah !== bh) return ah.localeCompare(bh)
-      return a.id.localeCompare(b.id)
-    })
-    // Count geometric reverse edges for stable left/right rail assignment.
-    let backSlot = 0
-    ranked.forEach((e, slot) => {
-      const src = byId.get(e.source)
-      const tgt = byId.get(e.target)
-      if (!src || !tgt) return
-      const start = estimateSourcePoint(src, sizeOf(src), e.sourceHandle, direction)
-      const end = estimateTargetPoint(tgt, sizeOf(tgt), undefined, direction)
-      const obstacles = obstaclesForEdge(e, nodes, sizeOf)
-      const reverse = isBackEdge(start, end, direction)
-      // Long forward spans (e.g. Course -> Generated when Generated sank) must
-      // side-route like back edges; a centre elbow punches through the stack.
-      const longSpan =
-        direction === 'DOWN' ? end.y - start.y > 280 : end.x - start.x > 280
-      const useSide = reverse || longSpan
-      let bends = useSide
-        ? buildMildSideRoute(start, end, direction, obstacles, slot)
-        : buildUniqueElbow(start, end, direction, slot)
-      // Bump the channel until the polyline clears foreign node boxes.
-      for (
-        let bump = 1;
-        bump <= 12 && bendsHitObstacle(start, end, bends, obstacles);
-        bump += 1
-      ) {
-        bends = useSide
-          ? buildMildSideRoute(start, end, direction, obstacles, slot + bump * 2)
-          : buildUniqueElbow(start, end, direction, slot + bump * 2)
-      }
-      // Full highway detour only when mild routing still clips (true cycle edges).
-      if (bendsHitObstacle(start, end, bends, obstacles)) {
-        bends = buildBackEdgeDetour(start, end, direction, obstacles, backSlot)
-        backSlot += 1
-        for (let bump = 1; bump <= 4 && bendsHitObstacle(start, end, bends, obstacles); bump += 1) {
-          bends = buildBackEdgeDetour(start, end, direction, obstacles, backSlot + bump)
-        }
-      }
-      waypoints.set(e.id, sanitizePolyline(bends))
-    })
-  }
-
-  // Final separation pass for any leftover shared channels (incl. opposite dir).
-  const forSeparate = edges.map((e) => {
-    const src = byId.get(e.source)
-    const tgt = byId.get(e.target)
-    const start = src
-      ? estimateSourcePoint(src, sizeOf(src), e.sourceHandle, direction)
-      : { x: 0, y: 0 }
-    const end = tgt
-      ? estimateTargetPoint(tgt, sizeOf(tgt), undefined, direction)
-      : { x: 0, y: 0 }
-    const bends = waypoints.get(e.id) ?? []
-    return {
-      id: e.id,
-      source: e.source,
-      sourceHandle: e.sourceHandle,
-      points: sanitizePolyline([start, ...bends, end]),
-    }
-  })
-  const separated = separateSharedSegments(forSeparate, gapFromDirection(direction))
-  for (const e of edges) {
-    const full = separated.get(e.id)
-    if (!full || full.length < 2) continue
-    waypoints.set(e.id, sanitizePolyline(full).slice(1, -1))
-  }
-  return waypoints
-}
-
-function gapFromDirection(_direction: 'DOWN' | 'RIGHT'): number {
-  return MIN_EDGE_GAP
+  return routeEdgesWithRouter(nodes, edges, sizeOf, direction)
 }
 
 /** Axis-aligned segment vs padded rect: true when the open segment crosses the interior. */

@@ -24,14 +24,16 @@ arrowheads). Back edges (cycles) are routed around the side on a clear highway.
 ## What counts as a conflict
 
 1. **Node overlaps** - two top-level content boxes (with margin) intersect.
-2. **Edges through nodes** - an orthogonal edge segment crosses the interior of a
-   node that is not that edge's source or target.
+2. **Edges through nodes** - an orthogonal edge segment crosses a non-endpoint
+   node box inflated by **8px** (hard failure in unit and Playwright geometry tests).
 3. **Edge crossings** - axis-aligned segments from unrelated edges cross at a point
    (reported for diagnostics; the toolbar badge focuses on overlaps and through-node hits).
 
 Shared bus segments (two edges from different source handles sharing a collinear
 overlap longer than 4px) are treated as a routing failure and are separated during
-auto-layout, not only during conflict resolve.
+auto-layout, not only during conflict resolve. Parallel channels stay at least
+**10px** apart after the nudging pass. Edges keep **16px** clearance from card edges
+via the orthogonal visibility-graph + A* router in `shared/layout/router.ts`.
 
 ## Detect
 
@@ -51,8 +53,9 @@ auto-layout, not only during conflict resolve.
 1. Push overlapping pairs apart along the flow direction (DOWN: prefer vertical;
    RIGHT: prefer horizontal) with minimal displacement.
 2. Prefer moving the non-manual node when one side is `manuallyPositioned`.
-3. Re-route affected edges with independent orthogonal channels (no shared buses).
-4. If an edge still clips a node, bump its mid-channel and retry detection.
+3. Re-route every edge with the shared A* orthogonal router (also used as ELK
+   post-processing), then nudge overlapping parallel segments.
+4. If an edge still clips a node (8px inflate), re-route again and retry detection.
 
 The editor toolbar shows a warning badge when conflicts exist, with a **Fix layout**
 action that applies resolve as a single undo entry. Auto-arrange, AI inserts, and

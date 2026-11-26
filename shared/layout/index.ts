@@ -81,6 +81,24 @@ export {
 export type { Point, RoutedEdge, SizedNode } from './edgeRouting.ts'
 
 export {
+  CORNER_RADIUS,
+  EDGE_CLEARANCE,
+  EDGE_COLOR,
+  EDGE_COLOR_HOVER,
+  EDGE_STROKE,
+  PARALLEL_GAP,
+  THROUGH_INFLATE,
+  handleEnterDir,
+  handleLeaveDir,
+  mixHex,
+  pickLabelPoint,
+  roundedOrthogonalPath,
+  routeEdgesWithRouter,
+  routeOrthogonal,
+} from './router.ts'
+export type { Dir, Rect } from './router.ts'
+
+export {
   formatGraphProblems,
   validateGraph,
 } from './validateGraph.ts'

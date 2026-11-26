@@ -13,6 +13,7 @@ import {
   segmentHitsRect,
   type Point,
 } from './edgeRouting.ts'
+import { THROUGH_INFLATE } from './router.ts'
 import type { LayoutDirection, LayoutEdgeLike, LayoutNodeLike } from './types.ts'
 
 export const CONFLICT_MARGIN = 24
@@ -45,13 +46,6 @@ export type ConflictSummary = {
   hasConflicts: boolean
 }
 
-function branchesLabelCount(node: LayoutNodeLike): number {
-  const data = node.data
-  if (!data || typeof data !== 'object') return 0
-  const branches = (data as { branches?: unknown }).branches
-  return Array.isArray(branches) ? branches.length : 0
-}
-
 /**
  * Bounding box from measured size, or kind defaults (width grows with label /
  * branch count). Optional margin expands the box for conflict tests.
@@ -60,20 +54,9 @@ export function nodeConflictBox(
   node: LayoutNodeLike,
   margin = CONFLICT_MARGIN,
 ): ConflictBox {
-  let size = defaultNodeSize(node)
-  // Grow width for long labels when no measured size was stored.
-  if (!node.size?.w) {
-    const labelLen = (node.label ?? '').length
-    const labelWidth = Math.min(360, Math.max(size.w, 48 + labelLen * 7.2))
-    const branchExtra =
-      node.kind === 'decision' || node.kind === 'switch'
-        ? Math.max(0, branchesLabelCount(node) - 2) * 40
-        : 0
-    size = {
-      w: Math.min(420, labelWidth + branchExtra),
-      h: size.h,
-    }
-  }
+  // Prefer measured size; otherwise trust defaultNodeSize / estimateNodeSize
+  // (decision/switch widths already account for chip labels).
+  const size = node.size?.w && node.size?.h ? node.size : defaultNodeSize(node)
   return {
     id: node.id,
     x: node.position.x - margin,
@@ -170,7 +153,7 @@ export function detectConflicts(
     const segs = segmentsOf(points)
     for (const box of boxes) {
       if (box.id === edge.source || box.id === edge.target) continue
-      // Use the unpadded content box for "through node" (margin 0).
+      // Inflate content by THROUGH_INFLATE so near-miss clips count as failures.
       const raw = nodes.find((n) => n.id === box.id)
       if (!raw) continue
       const size = defaultNodeSize(raw)
@@ -181,7 +164,7 @@ export function detectConflicts(
         h: size.h,
       }
       for (const seg of segs) {
-        if (segmentHitsRect(seg, content, 1)) {
+        if (segmentHitsRect(seg, content, THROUGH_INFLATE)) {
           edgesThroughNodes.push({ edgeId: edge.id, nodeId: box.id })
           break
         }
