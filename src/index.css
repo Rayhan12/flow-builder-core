@@ -1924,13 +1924,12 @@ input {
   font-size: var(--text-body);
   font-weight: 600;
   color: var(--color-text);
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
+  /* Titles never truncate: the card grows (width then height) to fit. */
+  overflow: visible;
+  display: block;
   word-break: break-word;
   white-space: normal;
+  line-height: 1.35;
 }
 
 .flow-node-desc,

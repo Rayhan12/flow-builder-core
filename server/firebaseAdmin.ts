@@ -5,10 +5,13 @@
 import { applicationDefault, cert, getApps, initializeApp, type App } from 'firebase-admin/app'
 import { getFirestore, type Firestore } from 'firebase-admin/firestore'
 
-const PROJECT_ID =
-  process.env.FIREBASE_PROJECT_ID?.trim() ||
-  process.env.GCLOUD_PROJECT?.trim() ||
-  'flow-builder-core'
+function resolveProjectId(): string {
+  return (
+    process.env.FIREBASE_PROJECT_ID?.trim() ||
+    process.env.GCLOUD_PROJECT?.trim() ||
+    'flow-builder-core'
+  )
+}
 
 function parseServiceAccount(raw: string): Record<string, unknown> {
   const trimmed = raw.trim()
@@ -52,9 +55,10 @@ export function getAdminApp(): App {
     return cachedApp
   }
 
+  const projectId = resolveProjectId()
   const usingEmulator = Boolean(process.env.FIRESTORE_EMULATOR_HOST?.trim())
   if (usingEmulator) {
-    cachedApp = initializeApp({ projectId: PROJECT_ID })
+    cachedApp = initializeApp({ projectId })
     return cachedApp
   }
 
@@ -62,7 +66,7 @@ export function getAdminApp(): App {
   if (json) {
     cachedApp = initializeApp({
       credential: cert(json as Parameters<typeof cert>[0]),
-      projectId: (typeof json.project_id === 'string' && json.project_id) || PROJECT_ID,
+      projectId: (typeof json.project_id === 'string' && json.project_id) || projectId,
     })
     return cachedApp
   }
@@ -70,7 +74,7 @@ export function getAdminApp(): App {
   // Last resort (local ADC). Prefer explicit env in production.
   cachedApp = initializeApp({
     credential: applicationDefault(),
-    projectId: PROJECT_ID,
+    projectId,
   })
   return cachedApp
 }
@@ -82,5 +86,5 @@ export function getAdminDb(): Firestore {
 }
 
 export function getFirebaseProjectId(): string {
-  return PROJECT_ID
+  return resolveProjectId()
 }

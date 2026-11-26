@@ -19,7 +19,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { auth, db } from '../lib/firebase'
+import { auth, db, usingEmulators } from '../lib/firebase'
 import { ensureUserAndDefaultProject, migrateLegacyDiagramsIfNeeded } from '../data/migration'
 import { AuthContext } from './authContext'
 
@@ -75,6 +75,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const unsub = onAuthStateChanged(auth, (next) => {
       setUser(next)
       setLoading(false)
+      if (usingEmulators && typeof window !== 'undefined') {
+        ;(window as unknown as { __FLOW_BUILDER_UID__?: string | null }).__FLOW_BUILDER_UID__ =
+          next?.uid ?? null
+      }
       if (next) {
         void runPostSignIn(next)
       }

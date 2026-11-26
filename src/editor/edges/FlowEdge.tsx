@@ -82,31 +82,40 @@ function buildWaypointPath(
   const routed = waypoints.some((w) => w.routed)
   const raw = [{ x: sourceX, y: sourceY }, ...waypoints.map((w) => ({ x: w.x, y: w.y })), { x: targetX, y: targetY }]
   // Routed bends from ELK / the independent router are already orthogonal; only
-  // bridge handle endpoints. Manual waypoints keep the older elbow fill-in.
+  // bridge handle endpoints. Drop collinear/backtrack stubs so markers stay at ends.
   const points = routed ? ensureOrthogonal(raw) : raw
+  const cleaned: Array<{ x: number; y: number }> = []
+  for (const p of points) {
+    const prev = cleaned[cleaned.length - 1]
+    if (prev && Math.abs(prev.x - p.x) < 0.5 && Math.abs(prev.y - p.y) < 0.5) continue
+    cleaned.push(p)
+  }
 
   if (edgeType === 'straight' || routed) {
-    const d = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')
-    const mid = points[Math.floor(points.length / 2)]
+    const d = cleaned.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')
+    const mid = cleaned[Math.floor(cleaned.length / 2)]
     return [d, mid.x, mid.y]
   }
 
   // Manual elbow / curved with waypoints: orthogonal segments through each bend.
-  let d = `M ${points[0].x} ${points[0].y}`
-  for (let i = 1; i < points.length; i += 1) {
-    const prev = points[i - 1]
-    const cur = points[i]
+  let d = `M ${cleaned[0].x} ${cleaned[0].y}`
+  for (let i = 1; i < cleaned.length; i += 1) {
+    const prev = cleaned[i - 1]
+    const cur = cleaned[i]
     if (edgeType === 'curved') {
       const cx = (prev.x + cur.x) / 2
       const cy = (prev.y + cur.y) / 2
       d += ` Q ${cx} ${prev.y} ${cx} ${cy} Q ${cx} ${cur.y} ${cur.x} ${cur.y}`
     } else {
-      const midX = cur.x
-      const midY = prev.y
-      d += ` L ${midX} ${midY} L ${cur.x} ${cur.y}`
+      const elbowX = cur.x
+      const elbowY = prev.y
+      if (Math.abs(elbowX - prev.x) > 0.5 || Math.abs(elbowY - prev.y) > 0.5) {
+        d += ` L ${elbowX} ${elbowY}`
+      }
+      d += ` L ${cur.x} ${cur.y}`
     }
   }
-  const mid = points[Math.floor(points.length / 2)]
+  const mid = cleaned[Math.floor(cleaned.length / 2)]
   return [d, mid.x, mid.y]
 }
 
@@ -207,15 +216,13 @@ export function FlowEdge({
       ? sourceNode.data.branches.find((b) => b.id === branchHandleId)
       : undefined
   const branchChipLabel = branchMeta?.label
-  // Chip already names the branch — hide the mid-edge duplicate on short hops.
-  // Long routed edges still show a small source-side branch tag.
+  // Chip already names the branch at the source — never draw a source-side tag.
+  // Short hops hide the duplicate mid label; long edges keep the label near the target.
   const pathLenApprox = Math.hypot(targetX - sourceX, targetY - sourceY)
-  const isLongBranchEdge = Boolean(branchChipLabel) && pathLenApprox > 140
-  const isDuplicateBranchLabel =
-    typeof label === 'string' &&
-    Boolean(branchChipLabel) &&
-    label === branchChipLabel &&
-    !isLongBranchEdge
+  const isLongBranchEdge = Boolean(branchChipLabel) && pathLenApprox > 180
+  const labelMatchesChip =
+    typeof label === 'string' && Boolean(branchChipLabel) && label === branchChipLabel
+  const hideBranchDuplicate = labelMatchesChip && !isLongBranchEdge
 
   const [path, midX, midY] = useMemo(() => {
     if (waypoints.length) {
@@ -259,9 +266,17 @@ export function FlowEdge({
     waypoints,
   ])
 
-  const labelT = edge?.labelPosition ?? 0.5
-  const labelPoint =
-    labelT === 0.5 ? { x: midX, y: midY } : pointAlongPath(path, labelT)
+  // Branch labels sit on the longest run, biased toward the target but kept off cards.
+  const defaultBranchT = isLongBranchEdge && labelMatchesChip ? 0.68 : 0.5
+  const labelT = edge?.labelPosition ?? defaultBranchT
+  const rawLabelPoint =
+    labelT === 0.5 && !isLongBranchEdge
+      ? { x: midX, y: midY }
+      : pointAlongPath(path, labelT)
+  // Nudge labels off the stroke so they do not sit on node boxes.
+  const labelPoint = isLongBranchEdge && labelMatchesChip
+    ? { x: rawLabelPoint.x, y: rawLabelPoint.y - 14 }
+    : rawLabelPoint
 
   const insertNodeOnEdge = useEditorStore((s) => s.insertNodeOnEdge)
   const updateEdge = useEditorStore((s) => s.updateEdge)
@@ -293,10 +308,6 @@ export function FlowEdge({
       : edge?.style?.dash === 'dashed'
         ? '6 4'
         : undefined
-  const sourceLabel =
-    isLongBranchEdge && branchChipLabel
-      ? branchChipLabel
-      : null
 
   const startCustom = needsCustomMarker(edge?.startMarker) ? edge?.startMarker : undefined
   const endCustom = needsCustomMarker(edge?.endMarker) ? edge?.endMarker : undefined
@@ -400,7 +411,8 @@ export function FlowEdge({
     updateEdge(id, { waypoints: next.length ? next : undefined })
   }
 
-  const showLabel = (Boolean(label) && !isDuplicateBranchLabel) || editing
+  const showLabel = (Boolean(label) && !hideBranchDuplicate) || editing
+  // Markers only at true path ends (never mid-segment).
   const markerStartUrl = startCustom ? `url(#${id}-start-${startCustom})` : markerStart
   const markerEndUrl = endCustom ? `url(#${id}-end-${endCustom})` : markerEnd
 
@@ -464,21 +476,6 @@ export function FlowEdge({
         </>
       ) : null}
       <EdgeLabelRenderer>
-        {sourceLabel ? (
-          <div
-            className="flow-edge-branch-tag"
-            data-testid="edge-branch-tag"
-            style={{
-              position: 'absolute',
-              transform: `translate(-50%, -120%) translate(${sourceX}px, ${sourceY + 18}px)`,
-              pointerEvents: 'none',
-              borderColor: color.solid,
-              color: color.solid,
-            }}
-          >
-            {sourceLabel}
-          </div>
-        ) : null}
         {selected && edgeType !== 'curved'
           ? waypoints.map((wp, index) => (
               <div

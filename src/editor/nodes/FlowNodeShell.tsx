@@ -77,8 +77,10 @@ function FlowNodeShellInner({
 }: Props) {
   const node = data.diagramNode
   const toggleHidden = useEditorStore((s) => s.toggleHidden)
+  const resizeNode = useEditorStore((s) => s.resizeNode)
   const updateNodeInternals = useUpdateNodeInternals()
   const branchRowRef = useRef<HTMLDivElement>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
   const showHints = useShowNodeHints()
   const meta = KIND_META[node.kind]
   const color = resolveColor(node.color, meta.defaultColor)
@@ -95,6 +97,10 @@ function FlowNodeShellInner({
   }
 
   const branchKey = sourceHandles?.map((b) => `${b.id}:${b.label}`).join('|')
+  const branchCount = sourceHandles?.length ?? 0
+  const maxSlot = sourceHandles?.length
+    ? Math.max(...sourceHandles.map((b) => branchSlotWidth(b.label)), 96)
+    : 96
 
   useEffect(() => {
     if (!hasBranches) return
@@ -124,6 +130,28 @@ function FlowNodeShellInner({
     node.size?.w,
     node.size?.h,
   ])
+
+  // Grow the stored size when the full title needs more height/width. Depends on
+  // content identity only (not size) so ResizeObserver/measure loops cannot loop.
+  const growKey = `${node.label}|${node.description ?? ''}|${showHints}|${branchKey}`
+  const lastGrowKey = useRef('')
+  useEffect(() => {
+    if (hideHeader || noteStyle || groupStyle || compact) return
+    if (lastGrowKey.current === growKey) return
+    const el = rootRef.current
+    if (!el) return
+    const neededW = Math.ceil(el.scrollWidth)
+    const neededH = Math.ceil(el.scrollHeight)
+    const curW = node.size?.w ?? 0
+    const curH = node.size?.h ?? 0
+    const nextW = Math.max(curW, neededW)
+    const nextH = Math.max(curH, neededH)
+    lastGrowKey.current = growKey
+    if (nextW <= curW + 2 && nextH <= curH + 2) return
+    resizeNode(node.id, { w: nextW, h: nextH }, false)
+    // Intentionally omit node.size: one grow pass per content key.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- size omitted on purpose
+  }, [growKey, hideHeader, noteStyle, groupStyle, compact, node.id, resizeNode])
 
   if (groupStyle) {
     const collapsed =
@@ -165,14 +193,11 @@ function FlowNodeShellInner({
     )
   }
 
-  const branchCount = sourceHandles?.length ?? 0
   const cols = decisionBranchColumns(branchCount)
-  const maxSlot = sourceHandles
-    ? Math.max(...sourceHandles.map((b) => branchSlotWidth(b.label)), 96)
-    : 96
 
   return (
     <div
+      ref={rootRef}
       className={[
         'flow-node',
         compact ? 'flow-node-compact' : '',

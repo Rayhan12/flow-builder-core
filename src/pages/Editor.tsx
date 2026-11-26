@@ -369,24 +369,102 @@ function EditorInner() {
   // Zoom to fit once nodes are measured: on open when the doc asks for it
   // (fitPending/layoutPending or off-screen nodes) and after AI/MCP edits.
   // Fitting before React Flow measures nodes gives a wrong zoom.
+  // Server/MCP layouts use estimated sizes; after the browser measures real card
+  // sizes, auto-resolve conflicts so the user never sees the overlap badge.
   const nodesInitialized = useNodesInitialized()
   const handledFitRequest = useRef(0)
+  const measureResolveBusy = useRef(false)
+  // Reset measure-resolve guards whenever the open diagram changes.
+  useEffect(() => {
+    measureResolveBusy.current = false
+    handledFitRequest.current = 0
+  }, [diagramId])
   useEffect(() => {
     const wantsRequest = fitRequest > handledFitRequest.current
-    if (!wantsRequest && !diagram?.fitPending) return
+    const needsFit = wantsRequest || !!diagram?.fitPending
+    const needsMeasureResolve =
+      !!diagram?.fitPending || !!diagram?.layoutPending
+    if (!needsFit && !needsMeasureResolve) return
     if (!nodesInitialized) return
+    if (measureResolveBusy.current) return
     handledFitRequest.current = fitRequest
-    requestAnimationFrame(() => {
-      void fitView({ padding: 0.2, duration: 280, maxZoom: 1.25 })
-      useEditorStore.setState((s) => {
-        if (!s.diagram?.fitPending && !s.diagram?.layoutPending) return s
-        return {
-          diagram: { ...s.diagram!, fitPending: false, layoutPending: false },
-          saveStatus: 'dirty' as const,
+    measureResolveBusy.current = true
+
+    let cancelled = false
+    const run = async () => {
+      // Let ResizeObserver / dimensions changes settle into the store.
+      await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())))
+      await new Promise((r) => window.setTimeout(r, 120))
+      if (cancelled) return
+
+      const relayoutMeasured = async () => {
+        const state = useEditorStore.getState()
+        const current = state.diagram
+        if (!current) return null
+        try {
+          const laid = await layoutDiagram(current.nodes, current.edges, {
+            direction: 'DOWN',
+          })
+          return { nodes: laid.nodes, edges: laid.edges }
+        } catch {
+          return resolveConflicts(current.nodes, current.edges, { direction: 'DOWN' })
         }
+      }
+
+      if (needsMeasureResolve) {
+        try {
+          let fixed = await relayoutMeasured()
+          if (fixed && !cancelled) {
+            applyNodeLayout(fixed.nodes, fixed.edges)
+          }
+          // Cards may grow once more after the first pass; wait and clear leftovers.
+          await new Promise((r) => window.setTimeout(r, 200))
+          if (!cancelled) {
+            const mid = useEditorStore.getState().diagram
+            if (mid) {
+              const still = detectConflicts(mid.nodes, mid.edges, { direction: 'DOWN' })
+              if (still.nodeOverlaps.length > 0 || still.edgesThroughNodes.length > 0) {
+                const again = resolveConflicts(mid.nodes, mid.edges, { direction: 'DOWN' })
+                applyNodeLayout(again.nodes, again.edges)
+              }
+            }
+          }
+        } catch {
+          // Keep estimated layout; fit still runs below.
+        }
+      }
+
+      if (cancelled) {
+        measureResolveBusy.current = false
+        return
+      }
+
+      requestAnimationFrame(() => {
+        void fitView({ padding: 0.2, duration: 280, maxZoom: 1.25 })
+        useEditorStore.setState((s) => {
+          if (!s.diagram?.fitPending && !s.diagram?.layoutPending) return s
+          return {
+            diagram: { ...s.diagram!, fitPending: false, layoutPending: false },
+            saveStatus: 'dirty' as const,
+          }
+        })
+        measureResolveBusy.current = false
       })
-    })
-  }, [fitRequest, diagram?.fitPending, nodesInitialized, fitView])
+    }
+
+    void run()
+    return () => {
+      cancelled = true
+      measureResolveBusy.current = false
+    }
+  }, [
+    fitRequest,
+    diagram?.fitPending,
+    diagram?.layoutPending,
+    nodesInitialized,
+    fitView,
+    applyNodeLayout,
+  ])
 
   const persist = useCallback(async () => {
     const state = useEditorStore.getState()
