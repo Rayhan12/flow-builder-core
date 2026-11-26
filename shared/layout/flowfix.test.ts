@@ -47,6 +47,7 @@ function assertNoNodeOverlaps(nodes: LayoutNodeLike[], margin = CONFLICT_MARGIN)
 function assertNoEdgeThroughNodes(
   nodes: LayoutNodeLike[],
   edges: LayoutEdgeLike[],
+  inflate = 8,
 ) {
   for (const edge of edges) {
     const points = pathPointsForEdge(edge, nodes, (n) => defaultNodeSize(n), 'DOWN')
@@ -62,8 +63,8 @@ function assertNoEdgeThroughNodes(
         if (node.kind === 'sticky' || node.parentId) continue
         const box = contentBox(node)
         expect(
-          segmentHitsRect(seg, box, 1),
-          `edge ${edge.id} through node ${node.id}`,
+          segmentHitsRect(seg, box, inflate),
+          `edge ${edge.id} through node ${node.id} (inflate ${inflate})`,
         ).toBe(false)
       }
     }
@@ -154,7 +155,7 @@ describe('merchant onboarding stress layout', () => {
         x2: points[i].x,
         y2: points[i].y,
       }
-      expect(segmentHitsRect(seg, riskBox, 1)).toBe(false)
+      expect(segmentHitsRect(seg, riskBox, 8)).toBe(false)
     }
     // Wait must not overlap Risk after layout.
     const wait = result.nodes.find((n) => n.id === 'wait')!
@@ -192,7 +193,7 @@ describe('merchant onboarding stress layout', () => {
             y2: points[i].y,
           }
           expect(
-            segmentHitsRect(seg, box, 1),
+            segmentHitsRect(seg, box, 8),
             `${edgeId} through ${blockId}`,
           ).toBe(false)
         }
@@ -234,6 +235,23 @@ describe('merchant onboarding stress layout', () => {
   })
 })
 
+describe('KYC / BNPL approval layout', () => {
+  it('layouts without overlaps, through-nodes (8px), or shared buses', async () => {
+    const { buildKycBnplFixture } = await import('./kycBnplFixture.ts')
+    const { nodes, edges } = buildKycBnplFixture()
+    expect(nodes.length).toBeGreaterThanOrEqual(25)
+    const result = await layoutDiagram(nodes, edges, { direction: 'DOWN' })
+    assertNoNodeOverlaps(result.nodes)
+    assertNoEdgeThroughNodes(result.nodes, result.edges, 8)
+    assertNoSharedBuses(result.nodes, result.edges)
+    for (const edgeId of ['e14', 'e25']) {
+      const edge = result.edges.find((e) => e.id === edgeId)!
+      const points = pathPointsForEdge(edge, result.nodes, (n) => defaultNodeSize(n), 'DOWN')
+      expect(points.length).toBeGreaterThan(2)
+    }
+  })
+})
+
 describe('TeachAI domain model layout', () => {
   it('builds the 11-node fixture', () => {
     const { nodes, edges } = buildTeachAiDomainFixture()
@@ -261,7 +279,7 @@ describe('TeachAI domain model layout', () => {
           y2: points[i].y,
         }
         expect(
-          segmentHitsRect(seg, box, 1),
+          segmentHitsRect(seg, box, 8),
           `back edge through ${blockId}`,
         ).toBe(false)
       }
