@@ -3,6 +3,7 @@
  * Same contract as createBrowserDataPort; version snapshots use reason "mcp".
  */
 import { FieldValue, type Firestore } from 'firebase-admin/firestore'
+import { layoutDiagram, placeNodesIncremental } from '../shared/layout/index.ts'
 import {
   ToolError,
   type DataPort,
@@ -191,10 +192,25 @@ export function createAdminDataPort(uid: string, db: Firestore = getAdminDb()): 
     return { ...record.doc, id: record.id }
   }
 
-  function validateReplace(base: Diagram, raw: DiagramJson, summary: string): Diagram {
+  async function runFullLayout(diagram: Diagram): Promise<Diagram> {
+    try {
+      const laid = await layoutDiagram(diagram.nodes, diagram.edges, { direction: 'DOWN' })
+      return {
+        ...diagram,
+        nodes: laid.nodes,
+        edges: laid.edges,
+        layoutPending: false,
+        fitPending: true,
+      }
+    } catch {
+      return { ...diagram, layoutPending: true, fitPending: true }
+    }
+  }
+
+  async function validateReplace(base: Diagram, raw: DiagramJson, summary: string): Promise<Diagram> {
     const result = applyReplace(base, raw, summary)
     if (!result.ok) throw new ToolError('invalid_args', `Invalid diagram: ${result.error}`)
-    return result.diagram
+    return runFullLayout(result.diagram)
   }
 
   async function persist(
@@ -212,6 +228,8 @@ export function createAdminDataPort(uid: string, db: Firestore = getAdminDb()): 
         groups: next.groups,
         viewport: next.viewport,
         theme: next.theme,
+        layoutPending: next.layoutPending,
+        fitPending: next.fitPending,
       }),
     )
     const nextRevision = record.revision + 1
@@ -310,7 +328,7 @@ export function createAdminDataPort(uid: string, db: Firestore = getAdminDb()): 
       await requireProject(projectId)
       let body: Diagram | null = null
       if (diagram) {
-        body = validateReplace(
+        body = await validateReplace(
           createEmptyDiagram('pending', title),
           { ...diagram, title },
           'Created',
@@ -363,7 +381,7 @@ export function createAdminDataPort(uid: string, db: Firestore = getAdminDb()): 
 
     async updateDiagram(projectId, diagramId, diagram) {
       const record = await requireDiagram(projectId, diagramId)
-      const next = validateReplace(baseOf(record), diagram, 'Replaced')
+      const next = await validateReplace(baseOf(record), diagram, 'Replaced')
       return toDiagramSummary(projectId, await persist(projectId, record, next))
     },
 
@@ -375,9 +393,34 @@ export function createAdminDataPort(uid: string, db: Firestore = getAdminDb()): 
         throw new ToolError('invalid_args', `Invalid ops${where}: ${issue?.message ?? 'bad shape'}`)
       }
       const record = await requireDiagram(projectId, diagramId)
-      const result = applyOps(baseOf(record), parsed.data)
+      const before = baseOf(record)
+      const result = applyOps(before, parsed.data)
       if (!result.ok) throw new ToolError('invalid_args', `Edits not applied: ${result.error}`)
-      const saved = await persist(projectId, record, result.diagram)
+      let next = result.diagram
+      const added = result.diff.addedNodes
+      if (added.length > 0) {
+        try {
+          if (before.nodes.length <= 1) {
+            next = await runFullLayout(next)
+          } else {
+            const laid = await placeNodesIncremental(next.nodes, next.edges, added, {
+              direction: 'DOWN',
+            })
+            next = {
+              ...next,
+              nodes: laid.nodes,
+              edges: laid.edges,
+              layoutPending: false,
+              fitPending: true,
+            }
+          }
+        } catch {
+          next = { ...next, fitPending: true }
+        }
+      } else {
+        next = { ...next, fitPending: true }
+      }
+      const saved = await persist(projectId, record, next)
       return { ...toDiagramSummary(projectId, saved), changeSummary: result.diff.summary }
     },
 

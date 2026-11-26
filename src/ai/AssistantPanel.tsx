@@ -3,7 +3,6 @@ import { Sparkles, X } from 'lucide-react'
 import { useAuth } from '../auth/useAuth'
 import { addMessage, listMessages, markMessageApplied, type DiagramMessage } from '../data/messages'
 import { saveVersion } from '../data/versions'
-import { autoLayoutDiagram } from '../editor/layout'
 import type { Diagram } from '../schema'
 import { useEditorStore } from '../store/editorStore'
 import { MissingKeyCard } from './components/MissingKeyCard'
@@ -249,16 +248,27 @@ export function AssistantPanel({
     if (!uid || item.applied) return
     let next = item.nextDiagram
 
-    const missingPositions = next.nodes.some(
-      (n, i) => i > 0 && n.position.x === 0 && n.position.y === 0,
-    )
-    if (missingPositions || next.nodes.every((n) => n.position.x === 0 && n.position.y === 0)) {
-      try {
-        const laidOut = await autoLayoutDiagram(next.nodes, next.edges, 'DOWN')
-        next = { ...next, nodes: laidOut }
-      } catch {
-        // keep positions
+    try {
+      const { isAutoLayoutDisabled, layoutDiagram, placeNodesIncremental } =
+        await import('../editor/layout')
+      if (!isAutoLayoutDisabled()) {
+        const current = useEditorStore.getState().diagram
+        const beforeIds = new Set(current?.nodes.map((n) => n.id) ?? [])
+        const added = next.nodes.map((n) => n.id).filter((id) => !beforeIds.has(id))
+        const isReplaceHeavy =
+          item.diff.removedNodes.length > 0 ||
+          added.length > 8 ||
+          (current?.nodes.length ?? 0) <= 1
+        if (isReplaceHeavy || added.length === 0) {
+          const laid = await layoutDiagram(next.nodes, next.edges, 'DOWN')
+          next = { ...next, nodes: laid.nodes, edges: laid.edges, fitPending: true }
+        } else {
+          const laid = await placeNodesIncremental(next.nodes, next.edges, added, 'DOWN')
+          next = { ...next, nodes: laid.nodes, edges: laid.edges, fitPending: true }
+        }
       }
+    } catch {
+      // keep positions
     }
 
     replaceDiagramContent(next)

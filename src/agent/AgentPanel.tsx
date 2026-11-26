@@ -190,7 +190,9 @@ function AgentPanelBody({
     if (createPort) return createPort(uid)
     return createBrowserDataPort(uid, {
       layout: async (nodes, edges) =>
-        (await import('../editor/layout')).autoLayoutDiagram(nodes, edges, 'DOWN'),
+        (await import('../editor/layout')).layoutDiagram(nodes, edges, 'DOWN'),
+      placeIncremental: async (nodes, edges, newIds) =>
+        (await import('../editor/layout')).placeNodesIncremental(nodes, edges, newIds, 'DOWN'),
     })
   }, [uid, createPort])
 

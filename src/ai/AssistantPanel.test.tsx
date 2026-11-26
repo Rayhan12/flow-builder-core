@@ -109,6 +109,15 @@ vi.mock('../data/versions', () => ({
 }))
 
 vi.mock('../editor/layout', () => ({
+  isAutoLayoutDisabled: () => false,
+  layoutDiagram: vi.fn().mockImplementation(async (nodes: unknown, edges: unknown) => ({
+    nodes,
+    edges,
+  })),
+  placeNodesIncremental: vi.fn().mockImplementation((nodes: unknown, edges: unknown) => ({
+    nodes,
+    edges,
+  })),
   autoLayoutDiagram: vi.fn().mockImplementation(async (nodes: unknown) => nodes),
 }))
 

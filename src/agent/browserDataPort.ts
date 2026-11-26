@@ -24,15 +24,32 @@ import {
   type ProjectListItem,
 } from '../data/projects'
 import { saveVersion } from '../data/versions'
-import { createEmptyDiagram, type Diagram, type DiagramNode } from '../schema'
+import { createEmptyDiagram, type Diagram, type DiagramEdge, type DiagramNode } from '../schema'
+
+export type LayoutFn = (
+  nodes: DiagramNode[],
+  edges: DiagramEdge[],
+) => Promise<DiagramNode[] | { nodes: DiagramNode[]; edges: DiagramEdge[] }>
+
+export type IncrementalLayoutFn = (
+  nodes: DiagramNode[],
+  edges: DiagramEdge[],
+  newNodeIds: string[],
+) => Promise<{ nodes: DiagramNode[]; edges: DiagramEdge[] } | DiagramNode[]>
 
 export type BrowserDataPortOptions = {
   /**
-   * Optional auto layout, used when a diagram arrives with no node positions
-   * (for example `autoLayoutDiagram` from `src/editor/layout`). Left out in
-   * tests, where there is no worker.
+   * Auto layout after create_diagram / update_diagram.
+   * Prefer returning `{ nodes, edges }` so orthogonal waypoints are kept.
    */
-  layout?: (nodes: DiagramNode[], edges: Diagram['edges']) => Promise<DiagramNode[]>
+  layout?: LayoutFn
+  /**
+   * Incremental placement when apply_diagram_edits adds nodes.
+   * Falls back to full `layout` when omitted.
+   */
+  placeIncremental?: IncrementalLayoutFn
+  /** When true, skip layout (e2e piled-up screenshots). */
+  disableAutoLayout?: boolean
 }
 
 function iso(d: Date | null): string | null {
@@ -72,17 +89,17 @@ function recordSummary(projectId: string, d: DiagramRecord): DiagramSummary {
   }
 }
 
-function hasPositions(raw: unknown): boolean {
-  if (!raw || typeof raw !== 'object') return true
-  const nodes = (raw as { nodes?: unknown }).nodes
-  if (!Array.isArray(nodes) || nodes.length === 0) return true
-  return nodes.some((n) => n && typeof n === 'object' && 'position' in n)
+function normalizeLayoutResult(
+  result: DiagramNode[] | { nodes: DiagramNode[]; edges: DiagramEdge[] },
+  edges: DiagramEdge[],
+): { nodes: DiagramNode[]; edges: DiagramEdge[] } {
+  if (Array.isArray(result)) return { nodes: result, edges }
+  return result
 }
 
 /**
  * DataPort backed by Firestore through `src/data/*`, scoped to one user.
  * The caller (the signed-in agent panel) supplies `uid`; no tool can pass one.
- * The future MCP server implements the same interface with firebase-admin.
  */
 export function createBrowserDataPort(uid: string, options: BrowserDataPortOptions = {}): DataPort {
   async function requireProject(projectId: string): Promise<Project> {
@@ -101,24 +118,72 @@ export function createBrowserDataPort(uid: string, options: BrowserDataPortOptio
     return { ...record.doc, id: record.id }
   }
 
+  async function runFullLayout(diagram: Diagram): Promise<Diagram> {
+    if (options.disableAutoLayout || !options.layout) {
+      return { ...diagram, layoutPending: true, fitPending: true }
+    }
+    try {
+      const laid = normalizeLayoutResult(
+        await options.layout(diagram.nodes, diagram.edges),
+        diagram.edges,
+      )
+      return {
+        ...diagram,
+        nodes: laid.nodes,
+        edges: laid.edges,
+        layoutPending: false,
+        fitPending: true,
+      }
+    } catch {
+      return { ...diagram, layoutPending: true, fitPending: true }
+    }
+  }
+
+  async function runIncremental(
+    before: Diagram,
+    after: Diagram,
+    addedNodeIds: string[],
+  ): Promise<Diagram> {
+    if (options.disableAutoLayout) {
+      return { ...after, layoutPending: true, fitPending: true }
+    }
+    if (addedNodeIds.length === 0) {
+      return { ...after, fitPending: true }
+    }
+    try {
+      if (options.placeIncremental) {
+        const laid = normalizeLayoutResult(
+          await options.placeIncremental(after.nodes, after.edges, addedNodeIds),
+          after.edges,
+        )
+        return {
+          ...after,
+          nodes: laid.nodes,
+          edges: laid.edges,
+          layoutPending: false,
+          fitPending: true,
+        }
+      }
+      // Full layout when the board was empty / nearly empty; otherwise keep
+      // applyOps positions if no incremental fn was supplied.
+      if (options.layout && before.nodes.length <= 1) {
+        return runFullLayout(after)
+      }
+      return { ...after, fitPending: true }
+    } catch {
+      return { ...after, fitPending: true }
+    }
+  }
+
   /** Validate a full diagram and place it on the base. Throws invalid_args. */
   async function validateReplace(base: Diagram, raw: DiagramJson, summary: string): Promise<Diagram> {
     const result = applyReplace(base, raw, summary)
     if (!result.ok) throw new ToolError('invalid_args', `Invalid diagram: ${result.error}`)
-    let next = result.diagram
-    if (options.layout && !hasPositions(raw)) {
-      try {
-        next = { ...next, nodes: await options.layout(next.nodes, next.edges) }
-      } catch {
-        // Keep the default grid positions.
-      }
-    }
-    return next
+    return runFullLayout(result.diagram)
   }
 
   async function persist(projectId: string, record: DiagramRecord, next: Diagram): Promise<DiagramRecord> {
     const revision = await saveDiagram(uid, projectId, record.id, next, record.revision)
-    // Version history is best effort, like the in-editor assistant.
     try {
       await saveVersion(uid, projectId, record.id, next, 'agent')
     } catch {
@@ -185,9 +250,12 @@ export function createBrowserDataPort(uid: string, options: BrowserDataPortOptio
         throw new ToolError('invalid_args', `Invalid ops${where}: ${issue?.message ?? 'bad shape'}`)
       }
       const record = await requireDiagram(projectId, diagramId)
-      const result = applyOps(baseOf(record), parsed.data)
+      const before = baseOf(record)
+      const result = applyOps(before, parsed.data)
       if (!result.ok) throw new ToolError('invalid_args', `Edits not applied: ${result.error}`)
-      const saved = await persist(projectId, record, result.diagram)
+      const addedNodeIds = result.diff.addedNodes
+      const next = await runIncremental(before, result.diagram, addedNodeIds)
+      const saved = await persist(projectId, record, next)
       return { ...recordSummary(projectId, saved), changeSummary: result.diff.summary }
     },
 

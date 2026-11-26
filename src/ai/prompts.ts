@@ -14,7 +14,7 @@ const SCHEMA_HINT = `Diagram JSON schema v3:
       "description": optional string,
       "icon": optional lucide icon name,
       "color": optional palette key (slate|blue|violet|amber|indigo|green|red|pink|yellow|gray) or hex,
-      "position": { "x": number, "y": number },
+      "position": optional { "x": number, "y": number } (hint only; layout is automatic),
       "size": optional { "w": number, "h": number },
       "parentId": optional group/section node id,
       "locked": optional boolean,
@@ -114,7 +114,7 @@ Rules:
 - Give every node a stable unique id (e.g. n1, n2). Give every edge a unique id (e.g. e1).
 - Decision nodes must include at least Yes and No branches by default; add more branches with labels and optional match conditions when needed.
 - Rule nodes should use structured match groups (field, operator, value) when possible.
-- Place nodes with sensible positions when using replace; if unsure, use a top-to-bottom layout with ~260px horizontal and ~140px vertical spacing.
+- Positions are optional hints only. Automatic layout runs after your changes — do not invent precise coordinates or spacing.
 - Keep labels short and plain English. Do not use em dashes.
 - Never invent API keys or secrets.
 - Do not include commentary outside the JSON object.
