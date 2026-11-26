@@ -34,6 +34,7 @@ test.describe('BUGS2 editor UX', () => {
   test('1: decision card grows for 6 branches without overlap', async ({ page }) => {
     await signUpAndOpenEditor(page, 'bugs2-1')
     await addKind(page, 'Decision')
+    await page.getByRole('tab', { name: 'Settings' }).click()
     await expect(page.getByTestId('decision-branches')).toBeVisible()
 
     for (let i = 0; i < 4; i += 1) {

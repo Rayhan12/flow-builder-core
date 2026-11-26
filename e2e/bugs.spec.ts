@@ -100,6 +100,7 @@ test.describe('Priority editor bugs', () => {
   test('bug5: guided rule builder with sentence preview', async ({ page }) => {
     await signUpAndOpenEditor(page, 'bug5')
     await addKind(page, 'Rule set')
+    await page.getByRole('tab', { name: 'Settings' }).click()
     await expect(page.getByTestId('rule-builder')).toBeVisible()
     await page.getByLabel('Condition 1 field').fill('credit score')
     await page.getByLabel('Condition 1 operator').selectOption('gt')
@@ -114,6 +115,7 @@ test.describe('Priority editor bugs', () => {
   test('bug6: decision custom branches', async ({ page }) => {
     await signUpAndOpenEditor(page, 'bug6')
     await addKind(page, 'Decision')
+    await page.getByRole('tab', { name: 'Settings' }).click()
     await expect(page.getByTestId('decision-branches')).toBeVisible()
     await expect(page.getByTestId('decision-branch')).toHaveCount(2)
     await page.getByRole('button', { name: 'Add branch' }).click()

@@ -174,11 +174,12 @@ test.describe('UXB Figma-style panels and editing', () => {
     const lockCheck = await page.evaluate(() => {
       const s = (window as unknown as { __FLOW_BUILDER_STORE__?: StoreApi }).__FLOW_BUILDER_STORE__
       const state = s!.getState()
-      const step = (state.diagram?.nodes ?? []).find((n) => n.kind === 'step')!
+      const step = (state.diagram?.nodes ?? []).find((n) => n.kind === 'step')
+      if (!step) throw new Error('no step')
       state.setSelection([step.id], [])
       state.toggleLocked([step.id])
-      const again = s!.getState().diagram?.nodes.find((n) => n.id === step.id)!
-      return { locked: again.locked === true }
+      const again = s!.getState().diagram?.nodes.find((n) => n.id === step.id)
+      return { locked: again?.locked === true }
     })
     expect(lockCheck.locked).toBe(true)
   })

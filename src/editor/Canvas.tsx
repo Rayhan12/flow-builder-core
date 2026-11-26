@@ -390,8 +390,9 @@ export function Canvas({
   )
 
   const onNodeMouseEnter = useCallback(
-    (_: ReactMouseEvent, node: FlowNode) => {
-      if (!altHeld || draggingRef.current || !selectedNodeIds.length) return
+    (event: ReactMouseEvent, node: FlowNode) => {
+      const measuring = altHeld || event.altKey
+      if (!measuring || draggingRef.current || !selectedNodeIds.length) return
       if (selectedNodeIds.includes(node.id)) return
       const d = useEditorStore.getState().diagram
       if (!d) return
@@ -405,9 +406,12 @@ export function Canvas({
     [altHeld, selectedNodeIds],
   )
 
-  const onNodeMouseLeave = useCallback(() => {
-    if (!draggingRef.current && altHeld) setMeasurements([])
-  }, [altHeld])
+  const onNodeMouseLeave = useCallback(
+    (event: ReactMouseEvent) => {
+      if (!draggingRef.current && (altHeld || event.altKey)) setMeasurements([])
+    },
+    [altHeld],
+  )
 
   const onSelectionChange = useCallback(
     ({ nodes: n, edges: e }: OnSelectionChangeParams<FlowNode, FlowEdge>) => {

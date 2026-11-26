@@ -110,6 +110,7 @@ test.describe('EDITOR3 text, shapes, palette, collapse', () => {
 
     const last = page.getByTestId('shape-card').last()
     await last.click()
+    await page.getByRole('tab', { name: 'Settings' }).click()
     await expect(page.getByTestId('swap-shape')).toBeVisible()
     const before = await last.getAttribute('data-shape')
     await page.getByTestId('swap-shape').selectOption(before === 'diamond' ? 'hexagon' : 'diamond')
