@@ -10,6 +10,7 @@ import {
   useReactFlow,
   type Connection,
   type EdgeChangeset,
+  type FinalConnectionState,
   type NodeChangeset,
   type OnReconnect,
   type OnSelectionChangeParams,
@@ -48,6 +49,7 @@ import {
   distancesWhileDragging,
   type DistanceMeasurement,
 } from './measure'
+import { nearestSideHandle, nearestSidesBetween } from './nearestSide'
 import { nodeTypes } from './nodes'
 import {
   dropPositionFromFlowPoint,
@@ -60,6 +62,8 @@ import { sortNodesForCanvas } from './zOrder'
 
 import '@xyflow/react/dist/style.css'
 
+export type CanvasTool = 'select' | 'connect'
+
 type Props = {
   onDropKind?: (kind: string, position: { x: number; y: number }) => void
   emptyAction?: ReactNode
@@ -67,6 +71,11 @@ type Props = {
   showMinimap?: boolean
   /** When false, React Flow 16px grid snap is off (Alt still disables object snap). */
   snapToGridEnabled?: boolean
+  tool?: CanvasTool
+  connectFromId?: string | null
+  onConnectFromChange?: (id: string | null) => void
+  connectTargetId?: string | null
+  onConnectTargetChange?: (id: string | null) => void
 }
 
 function findGroupAtPoint(
@@ -106,16 +115,31 @@ function worldPosition(node: DiagramNode, nodes: DiagramNode[]): { x: number; y:
   }
 }
 
-function nearestSideHandle(
+function findNodeAtPoint(
+  nodes: DiagramNode[],
   point: { x: number; y: number },
-  box: { left: number; top: number; width: number; height: number },
-): 'top' | 'right' | 'bottom' | 'left' {
-  const cx = box.left + box.width / 2
-  const cy = box.top + box.height / 2
-  const dx = (point.x - cx) / Math.max(box.width, 1)
-  const dy = (point.y - cy) / Math.max(box.height, 1)
-  if (Math.abs(dx) > Math.abs(dy)) return dx > 0 ? 'right' : 'left'
-  return dy > 0 ? 'bottom' : 'top'
+  excludeId?: string,
+): DiagramNode | undefined {
+  const candidates = nodes.filter(
+    (n) =>
+      n.id !== excludeId &&
+      !n.hidden &&
+      !isContainerKind(n.kind) &&
+      n.kind !== 'divider',
+  )
+  for (let i = candidates.length - 1; i >= 0; i -= 1) {
+    const n = candidates[i]
+    const box = nodeBox(n, nodes)
+    if (
+      point.x >= box.left &&
+      point.x <= box.left + box.width &&
+      point.y >= box.top &&
+      point.y <= box.top + box.height
+    ) {
+      return n
+    }
+  }
+  return undefined
 }
 
 export function Canvas({
@@ -124,6 +148,11 @@ export function Canvas({
   gridMode = 'dots',
   showMinimap = true,
   snapToGridEnabled = true,
+  tool = 'select',
+  connectFromId = null,
+  onConnectFromChange,
+  connectTargetId = null,
+  onConnectTargetChange,
 }: Props) {
   const diagram = useEditorStore((s) => s.diagram)
   const selectedNodeIds = useEditorStore((s) => s.selectedNodeIds)
@@ -159,6 +188,7 @@ export function Canvas({
   } | null>(null)
   const altDragDupRef = useRef(false)
   const dragDepthRef = useRef(0)
+  const reconnectingRef = useRef(false)
   const diagramNodes = diagram?.nodes
   const diagramEdges = diagram?.edges
   const reorderZ = useEditorStore((s) => s.reorderZ)
@@ -216,12 +246,20 @@ export function Canvas({
   const nodes: FlowNode[] = useMemo(() => {
     if (!diagramNodes) return []
     const selected = new Set(selectedNodeIds)
-    return sortNodesForCanvas(diagramNodes).map((n) =>
-      toFlowNode(n, selected.has(n.id), {
+    return sortNodesForCanvas(diagramNodes).map((n) => {
+      const flow = toFlowNode(n, selected.has(n.id), {
         parentCollapsed: Boolean(n.parentId && collapsedParents.has(n.parentId)),
-      }),
-    )
-  }, [diagramNodes, selectedNodeIds, collapsedParents])
+      })
+      const classes = [
+        flow.className,
+        connectFromId === n.id ? 'is-connect-source' : '',
+        connectTargetId === n.id ? 'is-connect-target' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')
+      return classes ? { ...flow, className: classes } : flow
+    })
+  }, [diagramNodes, selectedNodeIds, collapsedParents, connectFromId, connectTargetId])
 
   const edges: FlowEdge[] = useMemo(() => {
     if (!diagramNodes || !diagramEdges) return []
@@ -371,8 +409,9 @@ export function Canvas({
         sourceHandle,
         targetHandle,
       })
+      onConnectTargetChange?.(null)
     },
-    [addEdgeFromConnection, resolveHandles],
+    [addEdgeFromConnection, resolveHandles, onConnectTargetChange],
   )
 
   const onReconnect = useCallback<OnReconnect<FlowEdge>>(
@@ -385,8 +424,105 @@ export function Canvas({
         sourceHandle,
         targetHandle,
       })
+      onConnectTargetChange?.(null)
     },
-    [reconnectEdge, resolveHandles],
+    [reconnectEdge, resolveHandles, onConnectTargetChange],
+  )
+
+  const hitTestConnect = useCallback(
+    (
+      event: MouseEvent | TouchEvent,
+      fromNodeId: string,
+      fromHandleId: string | null | undefined,
+    ): { targetId: string; sourceHandle: string; targetHandle: string } | null => {
+      const d = useEditorStore.getState().diagram
+      if (!d) return null
+      const clientX = 'clientX' in event ? event.clientX : event.changedTouches?.[0]?.clientX
+      const clientY = 'clientY' in event ? event.clientY : event.changedTouches?.[0]?.clientY
+      if (clientX == null || clientY == null) return null
+      const flowPoint = screenToFlowPosition({ x: clientX, y: clientY })
+      const target = findNodeAtPoint(d.nodes, flowPoint, fromNodeId)
+      if (!target) return null
+      const sourceNode = d.nodes.find((n) => n.id === fromNodeId)
+      if (!sourceNode) return null
+      const sourceBox = nodeBox(sourceNode, d.nodes)
+      const targetBox = nodeBox(target, d.nodes)
+      const sourceHandle =
+        fromHandleId && fromHandleId !== 'null'
+          ? String(fromHandleId)
+          : nearestSideHandle(
+              {
+                x: targetBox.left + targetBox.width / 2,
+                y: targetBox.top + targetBox.height / 2,
+              },
+              sourceBox,
+            )
+      const targetHandle = nearestSideHandle(
+        {
+          x: sourceBox.left + sourceBox.width / 2,
+          y: sourceBox.top + sourceBox.height / 2,
+        },
+        targetBox,
+      )
+      return { targetId: target.id, sourceHandle, targetHandle }
+    },
+    [screenToFlowPosition],
+  )
+
+  const onConnectEnd = useCallback(
+    (event: MouseEvent | TouchEvent, state: FinalConnectionState) => {
+      onConnectTargetChange?.(null)
+      if (reconnectingRef.current) return
+      if (state.isValid || !('fromNode' in state) || !state.fromNode) return
+      const hit = hitTestConnect(event, state.fromNode.id, state.fromHandle?.id)
+      if (!hit) return
+      addEdgeFromConnection({
+        source: state.fromNode.id,
+        target: hit.targetId,
+        sourceHandle: hit.sourceHandle,
+        targetHandle: hit.targetHandle,
+      })
+    },
+    [addEdgeFromConnection, hitTestConnect, onConnectTargetChange],
+  )
+
+  const onReconnectStart = useCallback(() => {
+    reconnectingRef.current = true
+  }, [])
+
+  const onReconnectEnd = useCallback(
+    (
+      event: MouseEvent | TouchEvent,
+      edge: FlowEdge,
+      handleType: 'source' | 'target',
+      state: FinalConnectionState,
+    ) => {
+      reconnectingRef.current = false
+      onConnectTargetChange?.(null)
+      if (state.isValid) return
+      const fromNodeId = handleType === 'source' ? edge.source : edge.target
+      const hit = hitTestConnect(event, fromNodeId, state.fromHandle?.id ?? null)
+      if (!hit) {
+        // Drop on empty canvas: keep original edge (React Flow already cancelled).
+        return
+      }
+      if (handleType === 'source') {
+        reconnectEdge(edge.id, {
+          source: hit.targetId,
+          target: edge.target,
+          sourceHandle: hit.targetHandle,
+          targetHandle: edge.targetHandle ?? undefined,
+        })
+      } else {
+        reconnectEdge(edge.id, {
+          source: edge.source,
+          target: hit.targetId,
+          sourceHandle: edge.sourceHandle ?? undefined,
+          targetHandle: hit.targetHandle,
+        })
+      }
+    },
+    [hitTestConnect, onConnectTargetChange, reconnectEdge],
   )
 
   const onNodeMouseEnter = useCallback(
@@ -427,6 +563,39 @@ export function Canvas({
 
   const onNodeClick = useCallback(
     (event: ReactMouseEvent, node: FlowNode) => {
+      if (tool === 'connect') {
+        event.stopPropagation()
+        const d = useEditorStore.getState().diagram
+        if (!d) return
+        if (!connectFromId) {
+          onConnectFromChange?.(node.id)
+          setSelection([node.id], [])
+          return
+        }
+        if (connectFromId === node.id) {
+          // Keep source for chaining; click another node to draw the next edge.
+          setSelection([node.id], [])
+          return
+        }
+        const sourceNode = d.nodes.find((n) => n.id === connectFromId)
+        const targetNode = d.nodes.find((n) => n.id === node.id)
+        if (sourceNode && targetNode) {
+          const { sourceHandle, targetHandle } = nearestSidesBetween(
+            nodeBox(sourceNode, d.nodes),
+            nodeBox(targetNode, d.nodes),
+          )
+          addEdgeFromConnection({
+            source: connectFromId,
+            target: node.id,
+            sourceHandle,
+            targetHandle,
+          })
+        }
+        // Stay in connect mode for chained connections; next click is the new A.
+        onConnectFromChange?.(node.id)
+        setSelection([node.id], [])
+        return
+      }
       // Backup path: some controlled updates can skip onSelectionChange.
       // Shift-click is handled by React Flow multi-select; leave that alone.
       if (event.shiftKey) return
@@ -437,7 +606,22 @@ export function Canvas({
       }
       setSelection([node.id], [])
     },
-    [setSelection],
+    [
+      setSelection,
+      tool,
+      connectFromId,
+      onConnectFromChange,
+      addEdgeFromConnection,
+    ],
+  )
+
+  const onNodeMouseMove = useCallback(
+    (_: ReactMouseEvent, node: FlowNode) => {
+      if (tool === 'connect' && connectFromId && connectFromId !== node.id) {
+        onConnectTargetChange?.(node.id)
+      }
+    },
+    [tool, connectFromId, onConnectTargetChange],
   )
 
   const onEdgeClick = useCallback(
@@ -617,15 +801,25 @@ export function Canvas({
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onConnectEnd={onConnectEnd}
         onReconnect={onReconnect}
+        onReconnectStart={onReconnectStart}
+        onReconnectEnd={onReconnectEnd}
         onSelectionChange={onSelectionChange}
         onNodeClick={onNodeClick}
         onEdgeClick={onEdgeClick}
         onNodeContextMenu={onNodeContextMenu}
         onPaneContextMenu={onPaneContextMenu}
         onNodeMouseEnter={onNodeMouseEnter}
-        onNodeMouseLeave={onNodeMouseLeave}
-        onPaneClick={onPaneClick}
+        onNodeMouseMove={onNodeMouseMove}
+        onNodeMouseLeave={(e) => {
+          onNodeMouseLeave(e)
+          if (tool === 'connect') onConnectTargetChange?.(null)
+        }}
+        onPaneClick={() => {
+          onPaneClick()
+          if (tool === 'connect') onConnectFromChange?.(null)
+        }}
         onNodeDragStart={onNodeDragStart}
         onNodeDragStop={onNodeDragStop}
         onViewportChange={onViewportChange}
@@ -651,16 +845,22 @@ export function Canvas({
         zoomOnScroll
         zoomOnPinch
         zoomActivationKeyCode={['Meta', 'Control']}
-        nodesConnectable
+        nodesConnectable={tool !== 'connect'}
         edgesReconnectable
         connectionMode={ConnectionMode.Loose}
-        connectionRadius={28}
+        connectionRadius={36}
+        connectionLineStyle={{ stroke: 'var(--color-accent)', strokeWidth: 2 }}
         proOptions={{ hideAttribution: true }}
         defaultEdgeOptions={{
           type: 'flow',
           markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14, color: '#8b8d98' },
         }}
-        className={spaceHeld ? 'is-panning' : undefined}
+        className={[
+          spaceHeld ? 'is-panning' : '',
+          tool === 'connect' ? 'is-connector-tool' : '',
+        ]
+          .filter(Boolean)
+          .join(' ') || undefined}
       >
         {gridMode === 'dots' ? (
           <>
