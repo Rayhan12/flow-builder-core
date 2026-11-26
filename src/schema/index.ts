@@ -28,7 +28,7 @@ export {
   type Branch,
   type RuleRow,
   type EdgeMarker,
-} from './diagram'
+} from './diagram.ts'
 
 export {
   CONDITION_OPERATORS,
@@ -49,6 +49,6 @@ export {
   type Condition,
   type ConditionGroup,
   type RuleMatch,
-} from './conditions'
+} from './conditions.ts'
 
-export { migrations, migrateDiagramDoc, type DiagramMigration } from './migrations'
+export { migrations, migrateDiagramDoc, type DiagramMigration } from './migrations.ts'

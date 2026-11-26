@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { createNodeOfKind, newEdgeId, newNodeId } from '../editor/kinds'
+import { createNodeOfKind, newEdgeId, newNodeId } from '../editor/kinds.ts'
 import {
   CURRENT_SCHEMA_VERSION,
   DiagramDocSchema,
@@ -11,7 +11,7 @@ import {
   type DiagramEdge,
   type DiagramNode,
   type NodeKind,
-} from '../schema'
+} from '../schema/index.ts'
 
 const PositionSchema = z.object({
   x: z.number().finite(),

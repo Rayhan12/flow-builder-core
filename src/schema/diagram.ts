@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { ConditionSchema, RuleMatchSchema } from './conditions'
+import { ConditionSchema, RuleMatchSchema } from './conditions.ts'
 
 export const CURRENT_SCHEMA_VERSION = 3 as const
 

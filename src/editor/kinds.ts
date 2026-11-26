@@ -31,8 +31,8 @@ import {
   Workflow,
   Zap,
 } from 'lucide-react'
-import { emptyRuleMatch, type DiagramNode, type NodeKind, type ShapeType } from '../schema'
-import type { DataColorKey } from './colors'
+import { emptyRuleMatch, type DiagramNode, type NodeKind, type ShapeType } from '../schema/index.ts'
+import type { DataColorKey } from './colors.ts'
 
 export type KindMeta = {
   kind: NodeKind

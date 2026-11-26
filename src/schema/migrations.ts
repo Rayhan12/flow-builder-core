@@ -2,8 +2,8 @@ import {
   CURRENT_SCHEMA_VERSION,
   DiagramDocSchema,
   type DiagramDoc,
-} from './diagram'
-import { matchFromLegacyCondition } from './conditions'
+} from './diagram.ts'
+import { matchFromLegacyCondition } from './conditions.ts'
 
 /**
  * Upgrade steps keyed by the version they start from.
