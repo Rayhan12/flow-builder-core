@@ -83,7 +83,8 @@ export function toFlowEdge(edge: DiagramEdge, selected: boolean): FlowEdge {
     type: 'flow',
     source: edge.source,
     target: edge.target,
-    // Side handles always have ids; fall back so legacy edges still render.
+    // Side midpoints; floating sides are recomputed by the router on each route.
+    // Fallbacks keep legacy edges attached until the next re-route.
     sourceHandle: edge.sourceHandle ?? 'bottom',
     targetHandle: edge.targetHandle ?? 'top',
     label: edge.label,

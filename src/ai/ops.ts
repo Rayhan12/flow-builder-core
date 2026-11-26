@@ -87,6 +87,18 @@ const AddEdgeOpSchema = z.object({
       })
       .optional(),
     labelPosition: z.number().finite().min(0).max(1).optional(),
+    data: z
+      .object({
+        pinnedSide: z
+          .object({
+            source: z.boolean().optional(),
+            target: z.boolean().optional(),
+          })
+          .optional(),
+        elbowOffsets: z.array(z.number().finite()).max(16).optional(),
+        labelT: z.number().finite().min(0).max(1).optional(),
+      })
+      .optional(),
   }),
 })
 
@@ -314,6 +326,7 @@ export function applyOps(diagram: Diagram, ops: EditOp[]): ApplyResult {
           endMarker: op.edge.endMarker,
           style: op.edge.style,
           labelPosition: op.edge.labelPosition,
+          data: op.edge.data,
         }
         const parsed = DiagramEdgeSchema.safeParse(edge)
         if (!parsed.success) return { ok: false, error: 'Invalid addEdge' }

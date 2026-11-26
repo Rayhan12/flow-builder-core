@@ -5,9 +5,11 @@
  */
 
 import {
+  applyElbowOffsets,
   estimateSourcePoint,
   estimateTargetPoint,
   isBackEdge,
+  resolveEdgeHandles,
   sanitizePolyline,
   segmentHitsRect,
   separateSharedSegments,
@@ -16,16 +18,23 @@ import {
   type SizedNode,
 } from './edgeRouting.ts'
 
+/**
+ * Keep-out padding around cards for orthogonal routing.
+ * Obstacles are inflated by this amount; effective visual gap stays >= 12px.
+ */
 export const EDGE_CLEARANCE = 16
 export const PARALLEL_GAP = 10
 /** Inflate node boxes by this amount when testing "edge through card". */
 export const THROUGH_INFLATE = 8
 export const BEND_PENALTY = 36
 export const PROXIMITY_PENALTY = 12
+/** Rounded elbow corners: 8 to 12px. */
 export const CORNER_RADIUS = 10
 export const EDGE_STROKE = 1.5
 export const EDGE_COLOR = '#94A3B8'
 export const EDGE_COLOR_HOVER = '#64748B'
+/** Snap manual elbow offsets back to auto within this distance (px). */
+export const ELBOW_OFFSET_SNAP = 10
 
 export type Dir = 'N' | 'S' | 'E' | 'W'
 export type Rect = { x: number; y: number; w: number; h: number }
@@ -536,25 +545,21 @@ export function routeEdgesWithRouter(
     const src = byId.get(e.source)
     const tgt = byId.get(e.target)
     if (!src || !tgt) return
-    const start = estimateSourcePoint(src, sizeOf(src), e.sourceHandle, direction)
-    const end = estimateTargetPoint(
-      tgt,
-      sizeOf(tgt),
-      (e as { targetHandle?: string }).targetHandle,
-      direction,
-    )
-    const leave = handleLeaveDir(e.sourceHandle, src.kind, direction)
-    const enter = handleEnterDir(
-      (e as { targetHandle?: string }).targetHandle,
-      direction,
-    )
+    const srcSize = sizeOf(src)
+    const tgtSize = sizeOf(tgt)
+    const handles = resolveEdgeHandles(e, src, tgt, srcSize, tgtSize)
+    const start = estimateSourcePoint(src, srcSize, handles.sourceHandle, direction)
+    const end = estimateTargetPoint(tgt, tgtSize, handles.targetHandle, direction)
+    const leave = handleLeaveDir(handles.sourceHandle, src.kind, direction)
+    const enter = handleEnterDir(handles.targetHandle, direction)
     const obstacles = obstaclesForEdge(e, nodes, sizeOf)
     const reverse = isBackEdge(start, end, direction)
     const useSlot = reverse ? backSlot++ : slot
-    const full = routeOrthogonal(start, end, leave, enter, obstacles, existing, {
+    let full = routeOrthogonal(start, end, leave, enter, obstacles, existing, {
       backEdge: reverse,
       slot: useSlot,
     })
+    full = applyElbowOffsets(full, e.data?.elbowOffsets, ELBOW_OFFSET_SNAP)
     fullPaths.set(e.id, full)
     existing.push(...pointsToSegments(full))
   })
@@ -599,24 +604,21 @@ export function routeEdgesWithRouter(
     const src = byId.get(e.source)
     const tgt = byId.get(e.target)
     if (!src || !tgt) return null
-    const start = estimateSourcePoint(src, sizeOf(src), e.sourceHandle, direction)
-    const end = estimateTargetPoint(
-      tgt,
-      sizeOf(tgt),
-      (e as { targetHandle?: string }).targetHandle,
-      direction,
-    )
-    const leave = handleLeaveDir(e.sourceHandle, src.kind, direction)
-    const enter = handleEnterDir(
-      (e as { targetHandle?: string }).targetHandle,
-      direction,
-    )
+    const srcSize = sizeOf(src)
+    const tgtSize = sizeOf(tgt)
+    const handles = resolveEdgeHandles(e, src, tgt, srcSize, tgtSize)
+    const start = estimateSourcePoint(src, srcSize, handles.sourceHandle, direction)
+    const end = estimateTargetPoint(tgt, tgtSize, handles.targetHandle, direction)
+    const leave = handleLeaveDir(handles.sourceHandle, src.kind, direction)
+    const enter = handleEnterDir(handles.targetHandle, direction)
     const foreign = allObstacles.filter((o) => o.id !== e.source && o.id !== e.target)
-    return routeOrthogonal(start, end, leave, enter, foreign, [], {
+    let full = routeOrthogonal(start, end, leave, enter, foreign, [], {
       backEdge: true,
       slot,
       clearance: EDGE_CLEARANCE,
     })
+    full = applyElbowOffsets(full, e.data?.elbowOffsets, ELBOW_OFFSET_SNAP)
+    return full
   }
 
   // Nudge → validate → highway re-route any clippers; repeat so nudges cannot rest on cards.

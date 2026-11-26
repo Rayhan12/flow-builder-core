@@ -64,6 +64,7 @@ export type {
 
 export {
   MIN_EDGE_GAP,
+  applyElbowOffsets,
   buildBackEdgeDetour,
   buildUniqueElbow,
   collinearOverlapLength,
@@ -73,6 +74,7 @@ export {
   extractElkBendPoints,
   isBackEdge,
   pathPointsForEdge,
+  resolveEdgeHandles,
   routeEdgesIndependently,
   sanitizePolyline,
   segmentHitsRect,
@@ -86,6 +88,7 @@ export {
   EDGE_COLOR,
   EDGE_COLOR_HOVER,
   EDGE_STROKE,
+  ELBOW_OFFSET_SNAP,
   PARALLEL_GAP,
   THROUGH_INFLATE,
   handleEnterDir,

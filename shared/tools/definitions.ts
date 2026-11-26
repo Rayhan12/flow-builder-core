@@ -18,7 +18,7 @@ const title = z.string().trim().min(1).max(200).describe('Diagram title, up to 2
 const DIAGRAM_HINT =
   'Diagram JSON (schemaVersion 3): { title, description?, nodes: [{ id, kind, label, description?, icon?, color?, ' +
   'position?: {x, y}, size?, parentId?, locked?, hidden?, zIndex?, style?, data? }], ' +
-  'edges: [{ id, source, target, sourceHandle?, targetHandle?, label?, color?, type?, waypoints?, startMarker?, endMarker?, style?, labelPosition? }] }. ' +
+  'edges: [{ id, source, target, sourceHandle?, targetHandle?, label?, color?, type?, waypoints?, startMarker?, endMarker?, style?, labelPosition?, data?: { pinnedSide?, elbowOffsets?, labelT? } }] }. ' +
   'Node kinds: start, end, step, decision, switch, loop, parallelSplit, parallelJoin, delay, subflow, error, ' +
   'mapping, integration, database, inputForm, output, score, rule, lookup, actor, approval, notification, timer, event, ' +
   'note, callout, image, divider, link, group, shape, sticky, section. ' +
@@ -27,16 +27,19 @@ const DIAGRAM_HINT =
   'Each branch handle may have at most one outgoing edge, and sourceHandle must match a real branch id. ' +
   'Every parallelSplit needs one matching parallelJoin downstream (no duplicate joins for the same split). ' +
   'Do not create two adjacent nodes with the same kind and label in one edit. ' +
-  'Positions are optional hints only — automatic layout runs after create/update (ELK layered, branch-aware). ' +
-  'Do not invent precise coordinates or spacing. Max 2000 nodes and 4000 edges. Every edge must point at real node ids. ' +
+  'On a newly generated diagram (layoutPending), automatic layout places nodes. When editing an existing diagram, ' +
+  'existing user-placed nodes keep their x/y; only newly added nodes are placed near their anchors. ' +
+  'Edge style: { color?, width?: 1.5|2.5, dash?: solid|dashed }. Markers: none|arrow|arrowFilled|circle|diamond. ' +
+  'Max 2000 nodes and 4000 edges. Every edge must point at real node ids. ' +
   'If a tool returns code graph_invalid, read the problem list, fix the graph, and retry.'
 
 const OPS_HINT =
   'Edit operations applied in order. Allowed: { op: "addNode", node: { kind, label, id?, position?, data? } }, ' +
-  '{ op: "updateNode", id, patch }, { op: "removeNode", id }, { op: "addEdge", edge: { source, target, id?, sourceHandle?, label? } }, ' +
+  '{ op: "updateNode", id, patch }, { op: "removeNode", id }, ' +
+  '{ op: "addEdge", edge: { source, target, id?, sourceHandle?, targetHandle?, label?, color?, type?, startMarker?, endMarker?, style?, data? } }, ' +
   '{ op: "updateEdge", id, patch }, { op: "removeEdge", id }, { op: "setGroup", nodeId, parentId: string or null }, ' +
-  '{ op: "setTitle", title }. Positions on addNode are optional hints; new nodes are placed automatically near their ' +
-  'anchor without relaying out the whole board. Graph rules: parallelSplit needs one downstream parallelJoin; ' +
+  '{ op: "setTitle", title }. Positions on addNode are optional hints; new nodes are placed near their ' +
+  'anchor. Existing nodes never move unless you set position in updateNode. Graph rules: parallelSplit needs one downstream parallelJoin; ' +
   'decision/switch branches have at most one outgoing edge per branch id; no duplicate adjacent kind+label in the same edit. ' +
   'All ops are validated together; if any op is invalid or graph_invalid nothing is saved.'
 

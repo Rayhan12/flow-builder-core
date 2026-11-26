@@ -107,6 +107,9 @@ type EditorState = {
     target: string
     sourceHandle?: string | null
     targetHandle?: string | null
+    /** True when the user dropped on / dragged from an explicit side dot. */
+    pinnedSource?: boolean
+    pinnedTarget?: boolean
   }) => void
   reconnectEdge: (
     edgeId: string,
@@ -115,6 +118,8 @@ type EditorState = {
       target: string
       sourceHandle?: string | null
       targetHandle?: string | null
+      pinnedSource?: boolean
+      pinnedTarget?: boolean
     },
   ) => void
   insertNodeOnEdge: (edgeId: string, kind: NodeKind) => string | null
@@ -563,12 +568,21 @@ export const useEditorStore = create<EditorState>((set, get) => ({
             (e.sourceHandle ?? null) === (conn.sourceHandle ?? null),
         )
         if (exists) return d
+        const pinSource = conn.pinnedSource === true
+        const pinTarget = conn.pinnedTarget === true
         const edge: DiagramEdge = {
           id: newEdgeId(),
           source: conn.source,
           target: conn.target,
-          sourceHandle: conn.sourceHandle || 'bottom',
-          targetHandle: conn.targetHandle || 'top',
+          sourceHandle: conn.sourceHandle || undefined,
+          targetHandle: conn.targetHandle || undefined,
+          type: 'elbow',
+          data: {
+            pinnedSide: {
+              source: pinSource,
+              target: pinTarget,
+            },
+          },
         }
         const sourceNode = d.nodes.find((n) => n.id === conn.source)
         if (
@@ -579,6 +593,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           if (branch) {
             // Colour the edge; chip already names the branch so skip duplicate labels.
             edge.color = branch.color
+            // Branch chip handles are always pinned at the source.
+            edge.data = {
+              ...edge.data,
+              pinnedSide: { source: true, target: pinTarget },
+            }
           }
         }
         return { ...d, edges: [...d.edges, edge] }
@@ -599,8 +618,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
                 ...e,
                 source: connection.source,
                 target: connection.target,
-                sourceHandle: connection.sourceHandle || e.sourceHandle || 'bottom',
-                targetHandle: connection.targetHandle || e.targetHandle || 'top',
+                sourceHandle: connection.sourceHandle || e.sourceHandle,
+                targetHandle: connection.targetHandle || e.targetHandle,
+                data: {
+                  ...e.data,
+                  pinnedSide: {
+                    source: connection.pinnedSource ?? e.data?.pinnedSide?.source,
+                    target: connection.pinnedTarget ?? e.data?.pinnedSide?.target,
+                  },
+                },
               }
             : e,
         ),
@@ -644,6 +670,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           sourceHandle: side,
           targetHandle: off.target,
           type: 'elbow',
+          data: { pinnedSide: { source: true, target: true } },
         }
         const draftNodes = [...d.nodes, node]
         const draftEdges = [...d.edges, edge]

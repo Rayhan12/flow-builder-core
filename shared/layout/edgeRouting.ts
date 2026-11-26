@@ -12,7 +12,13 @@ export type RoutedEdge = {
   source: string
   target: string
   sourceHandle?: string
+  targetHandle?: string
   waypoints?: Point[]
+  data?: {
+    pinnedSide?: { source?: boolean; target?: boolean }
+    elbowOffsets?: number[]
+    labelT?: number
+  }
 }
 
 export type SizedNode = {
@@ -250,6 +256,92 @@ function branchesOf(node: SizedNode): Array<{ id: string }> {
         !!b && typeof b === 'object' && typeof (b as { id?: unknown }).id === 'string',
     )
     .map((b) => ({ id: b.id }))
+}
+
+const SIDE_HANDLES = new Set(['top', 'right', 'bottom', 'left'])
+
+function isBranchSourceHandle(node: SizedNode, handle: string | undefined): boolean {
+  if (!handle || SIDE_HANDLES.has(handle)) return false
+  return node.kind === 'decision' || node.kind === 'switch'
+}
+
+function facingSide(
+  from: { x: number; y: number; w: number; h: number },
+  toward: { x: number; y: number; w: number; h: number },
+): 'top' | 'right' | 'bottom' | 'left' {
+  const ax = from.x + from.w / 2
+  const ay = from.y + from.h / 2
+  const bx = toward.x + toward.w / 2
+  const by = toward.y + toward.h / 2
+  const dx = (bx - ax) / Math.max(from.w, 1)
+  const dy = (by - ay) / Math.max(from.h, 1)
+  if (Math.abs(dx) > Math.abs(dy)) return dx > 0 ? 'right' : 'left'
+  return dy > 0 ? 'bottom' : 'top'
+}
+
+/**
+ * Resolve attachment sides.
+ * - Decision/switch branch chips always keep their sourceHandle.
+ * - pinnedSide.source/target === true keeps the stored handle.
+ * - pinnedSide.source/target === false recomputes the facing side (floating).
+ * - No pinnedSide flag: keep layout/legacy handles as stored (stable lanes).
+ */
+export function resolveEdgeHandles(
+  edge: RoutedEdge,
+  src: SizedNode,
+  tgt: SizedNode,
+  srcSize: { w: number; h: number },
+  tgtSize: { w: number; h: number },
+): { sourceHandle: string | undefined; targetHandle: string | undefined } {
+  const pinned = edge.data?.pinnedSide
+  let sourceHandle = edge.sourceHandle
+  let targetHandle = edge.targetHandle
+
+  if (!isBranchSourceHandle(src, sourceHandle) && pinned?.source === false) {
+    sourceHandle = facingSide(
+      { x: src.position.x, y: src.position.y, w: srcSize.w, h: srcSize.h },
+      { x: tgt.position.x, y: tgt.position.y, w: tgtSize.w, h: tgtSize.h },
+    )
+  }
+
+  if (pinned?.target === false) {
+    targetHandle = facingSide(
+      { x: tgt.position.x, y: tgt.position.y, w: tgtSize.w, h: tgtSize.h },
+      { x: src.position.x, y: src.position.y, w: srcSize.w, h: srcSize.h },
+    )
+  }
+
+  return { sourceHandle, targetHandle }
+}
+
+/**
+ * Apply manual perpendicular offsets to middle segments of an orthogonal path.
+ * Offset index i shifts the (i+1)th interior segment. Values within snap of 0
+ * are treated as auto (no shift).
+ */
+export function applyElbowOffsets(
+  points: Point[],
+  offsets: number[] | undefined,
+  snap = 10,
+): Point[] {
+  if (!offsets?.length || points.length < 4) return points
+  const next = points.map((p) => ({ ...p }))
+  // Middle segments are between indices 1..n-2 (exclude first leave and last approach).
+  for (let seg = 1; seg < next.length - 2; seg += 1) {
+    const raw = offsets[seg - 1]
+    if (raw == null || Math.abs(raw) <= snap) continue
+    const a = next[seg]
+    const b = next[seg + 1]
+    const horiz = nearlyEqual(a.y, b.y)
+    if (horiz) {
+      a.y += raw
+      b.y += raw
+    } else {
+      a.x += raw
+      b.x += raw
+    }
+  }
+  return sanitizePolyline(next)
 }
 
 /** Approximate source handle position for routing after a node move / re-route. */

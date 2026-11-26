@@ -402,7 +402,24 @@ export const DiagramEdgeSchema = z.object({
       dash: z.enum(['solid', 'dashed']).optional(),
     })
     .optional(),
+  /** 0..1 along the path (same as data.labelT). */
   labelPosition: z.number().finite().min(0).max(1).optional(),
+  /**
+   * Connector extras: pinned side attachment, manual elbow segment offsets,
+   * and labelT along the path (mirrors labelPosition when set).
+   */
+  data: z
+    .object({
+      pinnedSide: z
+        .object({
+          source: z.boolean().optional(),
+          target: z.boolean().optional(),
+        })
+        .optional(),
+      elbowOffsets: z.array(z.number().finite()).max(16).optional(),
+      labelT: z.number().finite().min(0).max(1).optional(),
+    })
+    .optional(),
 })
 
 export type DiagramEdge = z.infer<typeof DiagramEdgeSchema>

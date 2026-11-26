@@ -27,6 +27,11 @@ export type LayoutEdgeLike = {
   targetHandle?: string
   label?: string
   waypoints?: LayoutWaypoint[]
+  data?: {
+    pinnedSide?: { source?: boolean; target?: boolean }
+    elbowOffsets?: number[]
+    labelT?: number
+  }
 }
 
 export type LayoutOptions = {
