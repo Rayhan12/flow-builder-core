@@ -79,7 +79,7 @@ const validDocV1 = {
   theme: { palette: 'default' },
 }
 
-describe('diagram schema v2', () => {
+describe('diagram schema', () => {
   it('parses a valid diagram doc', () => {
     const doc = migrateDiagramDoc(validDocV1)
     expect(doc.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
@@ -194,9 +194,9 @@ describe('diagram schema v2', () => {
 })
 
 describe('migrateDiagramDoc', () => {
-  it('migrates v1 docs to v2 with structured rules and decision mode', () => {
+  it('migrates v1 docs to current with structured rules and decision mode', () => {
     const migrated = migrateDiagramDoc(validDocV1)
-    expect(migrated.schemaVersion).toBe(2)
+    expect(migrated.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
     const rule = migrated.nodes.find((n) => n.kind === 'rule')
     expect(rule?.kind).toBe('rule')
     if (rule?.kind === 'rule') {
@@ -208,6 +208,61 @@ describe('migrateDiagramDoc', () => {
     if (decision?.kind === 'decision') {
       expect(decision.data.mode).toBe('branches')
     }
+  })
+
+  it('migrates v2 docs to v3', () => {
+    const v2 = { ...migrateDiagramDoc(validDocV1), schemaVersion: 2 }
+    // Force a v2 document by running only the first migration step.
+    const fromV2 = migrations[2]({ ...validDocV1, schemaVersion: 2, nodes: v2.nodes, edges: v2.edges })
+    expect(fromV2.schemaVersion).toBe(3)
+    const migrated = migrateDiagramDoc({
+      ...validDocV1,
+      schemaVersion: 2,
+      nodes: [
+        ...validDocV1.nodes,
+        {
+          id: 'n5',
+          kind: 'shape',
+          label: 'Rect',
+          position: { x: 0, y: 400 },
+          data: { shape: 'rect', text: 'Hello' },
+        },
+      ],
+    })
+    expect(migrated.schemaVersion).toBe(3)
+    expect(migrated.nodes.some((n) => n.kind === 'shape')).toBe(true)
+  })
+
+  it('accepts new v3 node kinds', () => {
+    const doc = createEmptyDiagramDoc('Kinds')
+    const withKinds = DiagramDocSchema.parse({
+      ...doc,
+      nodes: [
+        {
+          id: 'loop1',
+          kind: 'loop',
+          label: 'Loop',
+          position: { x: 0, y: 0 },
+          data: { collection: 'items' },
+        },
+        {
+          id: 'db1',
+          kind: 'database',
+          label: 'DB',
+          position: { x: 0, y: 100 },
+          data: { operation: 'query', collection: 'users' },
+        },
+        {
+          id: 'shape1',
+          kind: 'shape',
+          label: 'Hex',
+          position: { x: 0, y: 200 },
+          data: { shape: 'hexagon', text: 'Hex' },
+        },
+      ],
+    })
+    expect(withKinds.nodes).toHaveLength(3)
+    expect(withKinds.nodes.map((n) => n.kind)).toEqual(['loop', 'database', 'shape'])
   })
 
   it('throws when schemaVersion is missing', () => {
@@ -222,7 +277,7 @@ describe('migrateDiagramDoc', () => {
     ).toThrow(/newer/)
   })
 
-  it('exposes a v1 to v2 migration', () => {
-    expect(Object.keys(migrations)).toEqual(['1'])
+  it('exposes v1 to v2 and v2 to v3 migrations', () => {
+    expect(Object.keys(migrations).sort()).toEqual(['1', '2'])
   })
 })

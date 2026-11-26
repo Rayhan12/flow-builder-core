@@ -80,8 +80,17 @@ function migrateV1ToV2(doc: Record<string, unknown>): Record<string, unknown> {
   }
 }
 
+/** v2 to v3 is additive (new node kinds and shape types); bump version only. */
+function migrateV2ToV3(doc: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...doc,
+    schemaVersion: 3,
+  }
+}
+
 export const migrations: Record<number, DiagramMigration> = {
   1: migrateV1ToV2,
+  2: migrateV2ToV3,
 }
 
 function readSchemaVersion(raw: unknown): number {

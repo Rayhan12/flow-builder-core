@@ -16,10 +16,14 @@ const diagramId = id('Diagram id, as returned by list_diagrams or create_diagram
 const title = z.string().trim().min(1).max(200).describe('Diagram title, up to 200 characters')
 
 const DIAGRAM_HINT =
-  'Diagram JSON (schemaVersion 1): { title, description?, nodes: [{ id, kind, label, description?, icon?, color?, ' +
-  'position: {x, y}, parentId?, data? }], edges: [{ id, source, target, sourceHandle?, label?, color? }] }. ' +
-  'Node kinds: start, end, step, decision, mapping, integration, rule, note, group. ' +
-  'A decision node needs data.branches: [{ id, label }], and each branch id is an edge sourceHandle. ' +
+  'Diagram JSON (schemaVersion 3): { title, description?, nodes: [{ id, kind, label, description?, icon?, color?, ' +
+  'position: {x, y}, size?, parentId?, locked?, hidden?, zIndex?, style?, data? }], ' +
+  'edges: [{ id, source, target, sourceHandle?, targetHandle?, label?, color?, type?, waypoints?, startMarker?, endMarker?, style?, labelPosition? }] }. ' +
+  'Node kinds: start, end, step, decision, switch, loop, parallelSplit, parallelJoin, delay, subflow, error, ' +
+  'mapping, integration, database, inputForm, output, score, rule, lookup, actor, approval, notification, timer, event, ' +
+  'note, callout, image, divider, link, group, shape, sticky, section. ' +
+  'Shape data.shape: rect|rounded|diamond|ellipse|parallelogram|cylinder|document|hexagon|triangle. ' +
+  'A decision/switch node needs data.branches: [{ id, label }], and each branch id is an edge sourceHandle. ' +
   'Lay nodes out top to bottom, about 260px apart horizontally and 140px vertically. ' +
   'Max 2000 nodes and 4000 edges. Every edge must point at real node ids.'
 

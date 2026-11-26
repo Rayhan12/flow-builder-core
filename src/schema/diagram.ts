@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { ConditionSchema, RuleMatchSchema } from './conditions'
 
-export const CURRENT_SCHEMA_VERSION = 2 as const
+export const CURRENT_SCHEMA_VERSION = 3 as const
 
 export const MAX_NODES = 2000
 export const MAX_EDGES = 4000
@@ -25,15 +25,50 @@ const NodeStyleSchema = z.object({
   textWeight: z.union([z.literal(400), z.literal(500), z.literal(600), z.string()]).optional(),
 })
 
+export const ShapeTypeSchema = z.enum([
+  'rect',
+  'rounded',
+  'diamond',
+  'ellipse',
+  'parallelogram',
+  'cylinder',
+  'document',
+  'hexagon',
+  'triangle',
+])
+
+export type ShapeType = z.infer<typeof ShapeTypeSchema>
+
 export const NodeKindSchema = z.enum([
   'start',
   'end',
   'step',
   'decision',
+  'switch',
+  'loop',
+  'parallelSplit',
+  'parallelJoin',
+  'delay',
+  'subflow',
+  'error',
   'mapping',
   'integration',
+  'database',
+  'inputForm',
+  'output',
+  'score',
   'rule',
+  'lookup',
+  'actor',
+  'approval',
+  'notification',
+  'timer',
+  'event',
   'note',
+  'callout',
+  'image',
+  'divider',
+  'link',
   'group',
   'shape',
   'sticky',
@@ -89,6 +124,14 @@ const NodeBaseSchema = z.object({
   style: NodeStyleSchema.optional(),
 })
 
+const BranchesDataSchema = z.object({
+  mode: z.enum(['branches', 'switch']).optional(),
+  switchField: z.string().max(200).optional(),
+  /** Where branch output handles sit; default bottom. */
+  branchHandleSide: z.enum(['bottom', 'right']).optional(),
+  branches: z.array(BranchSchema).min(1),
+})
+
 export const DiagramNodeSchema = z.discriminatedUnion('kind', [
   NodeBaseSchema.extend({
     kind: z.literal('start'),
@@ -109,13 +152,57 @@ export const DiagramNodeSchema = z.discriminatedUnion('kind', [
   }),
   NodeBaseSchema.extend({
     kind: z.literal('decision'),
-    data: z.object({
-      mode: z.enum(['branches', 'switch']).optional(),
+    data: BranchesDataSchema,
+  }),
+  NodeBaseSchema.extend({
+    kind: z.literal('switch'),
+    data: BranchesDataSchema.extend({
       switchField: z.string().max(200).optional(),
-      /** Where branch output handles sit; default bottom. */
-      branchHandleSide: z.enum(['bottom', 'right']).optional(),
-      branches: z.array(BranchSchema).min(1),
     }),
+  }),
+  NodeBaseSchema.extend({
+    kind: z.literal('loop'),
+    data: z
+      .object({
+        collection: z.string().optional(),
+        maxIterations: z.number().int().positive().optional(),
+      })
+      .optional(),
+  }),
+  NodeBaseSchema.extend({
+    kind: z.literal('parallelSplit'),
+    data: z.object({ branches: z.array(z.string()).optional() }).optional(),
+  }),
+  NodeBaseSchema.extend({
+    kind: z.literal('parallelJoin'),
+    data: z.object({ waitFor: z.enum(['all', 'any']).optional() }).optional(),
+  }),
+  NodeBaseSchema.extend({
+    kind: z.literal('delay'),
+    data: z
+      .object({
+        durationMs: z.number().finite().nonnegative().optional(),
+        until: z.string().optional(),
+      })
+      .optional(),
+  }),
+  NodeBaseSchema.extend({
+    kind: z.literal('subflow'),
+    data: z
+      .object({
+        diagramId: z.string().optional(),
+        diagramTitle: z.string().optional(),
+      })
+      .optional(),
+  }),
+  NodeBaseSchema.extend({
+    kind: z.literal('error'),
+    data: z
+      .object({
+        code: z.string().optional(),
+        message: z.string().optional(),
+      })
+      .optional(),
   }),
   NodeBaseSchema.extend({
     kind: z.literal('mapping'),
@@ -134,6 +221,37 @@ export const DiagramNodeSchema = z.discriminatedUnion('kind', [
     }),
   }),
   NodeBaseSchema.extend({
+    kind: z.literal('database'),
+    data: z
+      .object({
+        operation: z.enum(['read', 'write', 'query', 'upsert']).optional(),
+        collection: z.string().optional(),
+        query: z.string().optional(),
+      })
+      .optional(),
+  }),
+  NodeBaseSchema.extend({
+    kind: z.literal('inputForm'),
+    data: z
+      .object({
+        fields: z.array(z.object({ name: z.string(), type: z.string().optional() })).optional(),
+      })
+      .optional(),
+  }),
+  NodeBaseSchema.extend({
+    kind: z.literal('output'),
+    data: z.object({ format: z.string().optional(), fields: z.array(z.string()).optional() }).optional(),
+  }),
+  NodeBaseSchema.extend({
+    kind: z.literal('score'),
+    data: z
+      .object({
+        model: z.string().optional(),
+        threshold: z.number().finite().optional(),
+      })
+      .optional(),
+  }),
+  NodeBaseSchema.extend({
     kind: z.literal('rule'),
     data: z.object({
       rules: z.array(RuleRowSchema),
@@ -141,10 +259,77 @@ export const DiagramNodeSchema = z.discriminatedUnion('kind', [
     }),
   }),
   NodeBaseSchema.extend({
+    kind: z.literal('lookup'),
+    data: z
+      .object({
+        table: z.string().optional(),
+        keyField: z.string().optional(),
+        valueField: z.string().optional(),
+      })
+      .optional(),
+  }),
+  NodeBaseSchema.extend({
+    kind: z.literal('actor'),
+    data: z.object({ role: z.string().optional() }).optional(),
+  }),
+  NodeBaseSchema.extend({
+    kind: z.literal('approval'),
+    data: z
+      .object({
+        assignees: z.array(z.string()).optional(),
+        dueInHours: z.number().finite().optional(),
+      })
+      .optional(),
+  }),
+  NodeBaseSchema.extend({
+    kind: z.literal('notification'),
+    data: z
+      .object({
+        channel: z.enum(['email', 'sms', 'push']).optional(),
+        template: z.string().optional(),
+        to: z.string().optional(),
+      })
+      .optional(),
+  }),
+  NodeBaseSchema.extend({
+    kind: z.literal('timer'),
+    data: z
+      .object({
+        cron: z.string().optional(),
+        timezone: z.string().optional(),
+      })
+      .optional(),
+  }),
+  NodeBaseSchema.extend({
+    kind: z.literal('event'),
+    data: z
+      .object({
+        eventName: z.string().optional(),
+        source: z.string().optional(),
+      })
+      .optional(),
+  }),
+  NodeBaseSchema.extend({
     kind: z.literal('note'),
     data: z.object({
       text: z.string(),
     }),
+  }),
+  NodeBaseSchema.extend({
+    kind: z.literal('callout'),
+    data: z.object({ text: z.string().default(''), tone: z.enum(['info', 'warn', 'tip']).optional() }).optional(),
+  }),
+  NodeBaseSchema.extend({
+    kind: z.literal('image'),
+    data: z.object({ url: z.string().default(''), alt: z.string().optional() }).optional(),
+  }),
+  NodeBaseSchema.extend({
+    kind: z.literal('divider'),
+    data: z.object({ orientation: z.enum(['horizontal', 'vertical']).optional() }).optional(),
+  }),
+  NodeBaseSchema.extend({
+    kind: z.literal('link'),
+    data: z.object({ href: z.string().default(''), title: z.string().optional() }).optional(),
   }),
   NodeBaseSchema.extend({
     kind: z.literal('group'),
@@ -157,7 +342,7 @@ export const DiagramNodeSchema = z.discriminatedUnion('kind', [
   NodeBaseSchema.extend({
     kind: z.literal('shape'),
     data: z.object({
-      shape: z.enum(['rect', 'rounded', 'diamond', 'ellipse']).default('rect'),
+      shape: ShapeTypeSchema.default('rect'),
       text: z.string().optional(),
     }),
   }),

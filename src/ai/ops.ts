@@ -5,6 +5,7 @@ import {
   DiagramDocSchema,
   DiagramEdgeSchema,
   DiagramNodeSchema,
+  NodeKindSchema,
   type Diagram,
   type DiagramDoc,
   type DiagramEdge,
@@ -22,27 +23,12 @@ const SizeSchema = z.object({
   h: z.number().finite().positive(),
 })
 
-const NodeKindEnum = z.enum([
-  'start',
-  'end',
-  'step',
-  'decision',
-  'mapping',
-  'integration',
-  'rule',
-  'note',
-  'group',
-  'shape',
-  'sticky',
-  'section',
-])
-
 /** AI may omit id/position/data; defaults are filled when applying. */
 const AddNodeOpSchema = z.object({
   op: z.literal('addNode'),
   node: z.object({
     id: z.string().min(1).optional(),
-    kind: NodeKindEnum,
+    kind: NodeKindSchema,
     label: z.string().max(200),
     description: z.string().max(2000).optional(),
     icon: z.string().optional(),
@@ -409,7 +395,7 @@ export function applyReplace(diagram: Diagram, rawDiagram: unknown, summary: str
       return { ok: false, error: `Invalid node at index ${i}` }
     }
     const obj = item as Record<string, unknown>
-    const kindParsed = NodeKindEnum.safeParse(obj.kind)
+    const kindParsed = NodeKindSchema.safeParse(obj.kind)
     if (!kindParsed.success || typeof obj.label !== 'string') {
       return { ok: false, error: `Node at index ${i} needs kind and label` }
     }

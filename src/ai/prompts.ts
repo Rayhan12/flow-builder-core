@@ -1,15 +1,15 @@
 import type { Diagram } from '../schema'
 import type { ChatMessage } from './provider'
 
-const SCHEMA_HINT = `Diagram JSON schema v2:
+const SCHEMA_HINT = `Diagram JSON schema v3:
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "title": string (max 200),
   "description": optional string,
   "nodes": [
     {
       "id": string,
-      "kind": "start" | "end" | "step" | "decision" | "mapping" | "integration" | "rule" | "note" | "group" | "shape" | "sticky" | "section",
+      "kind": "start"|"end"|"step"|"decision"|"switch"|"loop"|"parallelSplit"|"parallelJoin"|"delay"|"subflow"|"error"|"mapping"|"integration"|"database"|"inputForm"|"output"|"score"|"rule"|"lookup"|"actor"|"approval"|"notification"|"timer"|"event"|"note"|"callout"|"image"|"divider"|"link"|"group"|"shape"|"sticky"|"section",
       "label": string (max 200),
       "description": optional string,
       "icon": optional lucide icon name,
@@ -45,24 +45,43 @@ const SCHEMA_HINT = `Diagram JSON schema v2:
 Kind-specific data:
 - start, end: {} or omit
 - step: { owner?, notes? }
-- decision: {
+- decision|switch: {
     mode?: "branches" | "switch",
     switchField?: string,
     branchHandleSide?: "bottom" | "right",
     branches: [{ id, label, condition?, color?, match?: { combinator, conditions: [{ field, operator, value?, value2? }] }, isDefault? }]
   }
   operators: eq, neq, gt, lt, between, contains, empty, in
+- loop: { collection?, maxIterations? }
+- parallelSplit: { branches?: string[] }
+- parallelJoin: { waitFor?: "all"|"any" }
+- delay: { durationMs?, until? }
+- subflow: { diagramId?, diagramTitle? }
+- error: { code?, message? }
 - mapping: { mappings: [{ from, to, transform? }] }
 - integration: { service, method?, endpoint?, inputs?, outputs? }
+- database: { operation?, collection?, query? }
+- inputForm: { fields?: [{ name, type? }] }
+- output: { format?, fields? }
+- score: { model?, threshold? }
 - rule: {
     rules: [{ id?, condition? (legacy), match?: { combinator, groups: [{ combinator, conditions }] }, outcome, score? }],
     threshold?
   }
+- lookup: { table?, keyField?, valueField? }
+- actor: { role? }
+- approval: { assignees?, dueInHours? }
+- notification: { channel?: "email"|"sms"|"push", template?, to? }
+- timer: { cron?, timezone? }
+- event: { eventName?, source? }
 - note: { text }
-- group: { label, color?, collapsed? }
-- shape: { shape: "rect"|"rounded"|"diamond"|"ellipse", text? }
+- callout: { text?, tone?: "info"|"warn"|"tip" }
+- image: { url?, alt? }
+- divider: { orientation?: "horizontal"|"vertical" }
+- link: { href?, title? }
+- group|section: { label, color?, collapsed? }
+- shape: { shape: "rect"|"rounded"|"diamond"|"ellipse"|"parallelogram"|"cylinder"|"document"|"hexagon"|"triangle", text? }
 - sticky: { text }
-- section: { label, color?, collapsed? }
 
 Limits: max 2000 nodes, 4000 edges, unique ids, edges must point at real nodes.`
 
@@ -71,7 +90,7 @@ export const SYSTEM_PROMPT = `You are an assistant that helps design decision fl
 Always reply with a single JSON object (no markdown fences) in one of these shapes:
 
 1. Full replace (new flow or large rewrite):
-{ "type": "replace", "diagram": { ...full diagram v2 without requiring an id... }, "summary": "short plain English summary" }
+{ "type": "replace", "diagram": { ...full diagram v3 without requiring an id... }, "summary": "short plain English summary" }
 
 2. Small edits as ops:
 { "type": "ops", "ops": [ ... ], "summary": "short plain English summary" }
