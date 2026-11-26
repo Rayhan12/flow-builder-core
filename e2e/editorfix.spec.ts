@@ -138,17 +138,24 @@ async function measureBranchAnchors(page: Page, sourceId: string): Promise<Ancho
     s!.getState().moveNodes([{ id, position: { x: node.position.x + 0.01, y: node.position.y } }], false)
     s!.getState().moveNodes([{ id, position: { ...node.position } }], false)
   }, sourceId)
-  await page.waitForTimeout(100)
+  await page.waitForTimeout(120)
 
   return page.evaluate((id) => {
     const s = (window as unknown as { __FLOW_BUILDER_STORE__?: StoreApi }).__FLOW_BUILDER_STORE__
     const edges = (s!.getState().diagram?.edges ?? []).filter((e) => e.source === id)
+    const nodeEl = document.querySelector(`.react-flow__node[data-id="${id}"]`) as HTMLElement | null
+    const nodeBox = nodeEl?.getBoundingClientRect()
     const out: AnchorCheck[] = []
     for (const edge of edges) {
       const handleId = edge.sourceHandle ?? ''
-      const handle = document.querySelector(
-        `.react-flow__node[data-id="${id}"] .react-flow__handle[data-handleid="${handleId}"]`,
-      ) as HTMLElement | null
+      // Prefer the coloured chip dot (Handle) centre — not a card-border handle.
+      const handle =
+        (document.querySelector(
+          `.react-flow__node[data-id="${id}"] .flow-branch-handle-dot[data-handleid="${handleId}"]`,
+        ) as HTMLElement | null) ??
+        (document.querySelector(
+          `.react-flow__node[data-id="${id}"] .react-flow__handle[data-handleid="${handleId}"]`,
+        ) as HTMLElement | null)
       const path = document.querySelector(
         `.react-flow__edge[data-id="${edge.id}"] path.react-flow__edge-path`,
       ) as SVGPathElement | null
@@ -157,11 +164,9 @@ async function measureBranchAnchors(page: Page, sourceId: string): Promise<Ancho
         continue
       }
       const hr = handle.getBoundingClientRect()
-      // React Flow anchors Bottom handles at the bottom-centre of the handle box.
+      // Coloured chip-dot centre (Handle is 1×1 at the visual centre).
       const hx = hr.left + hr.width / 2
-      const hy = handle.classList.contains('react-flow__handle-right')
-        ? hr.top + hr.height / 2
-        : hr.bottom
+      const hy = hr.top + hr.height / 2
 
       // Prefer M x,y from the path `d` (exact source point RF used).
       const dAttr = path.getAttribute('d') ?? ''
@@ -180,7 +185,18 @@ async function measureBranchAnchors(page: Page, sourceId: string): Promise<Ancho
       }
       const dx = Math.abs(screen.x - hx)
       const dy = Math.abs(screen.y - hy)
-      out.push({ edgeId: edge.id, handleId, dx, dy, ok: dx <= 3 && dy <= 3 })
+      // Must be the chip dot under the pill, not a card-border handle.
+      const onCardBorder =
+        Boolean(nodeBox) && Math.abs(hy - (nodeBox as DOMRect).bottom) <= 4
+      const pill = handle.closest('[data-testid="decision-branch-pill"]')
+      const inPill = Boolean(pill)
+      out.push({
+        edgeId: edge.id,
+        handleId,
+        dx,
+        dy,
+        ok: dx <= 3 && dy <= 3 && !onCardBorder && inPill,
+      })
     }
     return out
   }, sourceId)
@@ -453,6 +469,19 @@ test.describe('EDITORFIX: connectors, hints, chips, shapes', () => {
 
   test('shape icons in palette are nine distinct SVG geometries', async ({ page }) => {
     await signUpAndOpenEditor(page, 'fix-shapes')
+    await page.getByRole('tab', { name: 'Assets' }).click().catch(() => undefined)
+
+    // Collapse other groups so Shapes sits fully in view at full opacity.
+    for (const id of ['flow', 'logic', 'data', 'annotate']) {
+      const group = page.getByTestId(`palette-group-${id}`)
+      if ((await group.count()) === 0) continue
+      const open = await group.evaluate((el) => el.classList.contains('is-open'))
+      if (open) {
+        const hdr = page.getByTestId(`palette-group-${id}-header`)
+        if (await hdr.count()) await hdr.click()
+      }
+    }
+
     const shapesGroup = page.getByTestId('palette-group-shapes')
     await expect(shapesGroup).toBeVisible()
     const header = page.getByTestId('palette-group-shapes-header')
@@ -481,14 +510,89 @@ test.describe('EDITORFIX: connectors, hints, chips, shapes', () => {
     )
     expect(new Set(signatures).size).toBe(9)
 
-    await page.screenshot({ path: path.join(RUNS, 'fix-shape-icons.png') })
+    // Scroll Shapes into view and assert all 9 items + subtitles are visible at full opacity.
+    await shapesGroup.evaluate((el) => el.scrollIntoView({ block: 'start' }))
+    const items = shapesGroup.locator('.palette-item')
+    await expect(items).toHaveCount(9)
+    for (let i = 0; i < 9; i += 1) {
+      await expect(items.nth(i)).toBeVisible()
+      await expect(items.nth(i).locator('.palette-item-hint')).toBeVisible()
+    }
+    const opacity = await shapesGroup.evaluate((el) => getComputedStyle(el).opacity)
+    expect(Number(opacity)).toBeGreaterThan(0.95)
+
+    await shapesGroup.screenshot({ path: path.join(RUNS, 'fix-shape-icons.png') })
   })
 
-  test('branch anchors stay on chip handles after connect, add, rename, reorder', async ({
+  test('palette categories show icons (stitched shots)', async ({ page }) => {
+    await signUpAndOpenEditor(page, 'fix-palette')
+    await page.getByRole('tab', { name: 'Assets' }).click().catch(() => undefined)
+
+    const groups = page.locator('.palette-group')
+    const count = await groups.count()
+    expect(count).toBeGreaterThanOrEqual(1)
+
+    for (let i = 0; i < count; i += 1) {
+      const group = groups.nth(i)
+      const testId = await group.getAttribute('data-testid')
+      const groupId = (testId ?? `group-${i}`).replace('palette-group-', '')
+      // Open this group; close others so content is fully visible.
+      for (let j = 0; j < count; j += 1) {
+        const g = groups.nth(j)
+        const open = await g.evaluate((el) => el.classList.contains('is-open'))
+        const wantOpen = j === i
+        if (open !== wantOpen) {
+          const hdr = g.locator('[data-testid$="-header"]').first()
+          if ((await hdr.count()) === 0) {
+            // Fall back: click the group title button
+            await g.locator('button').first().click()
+          } else {
+            await hdr.click()
+          }
+        }
+      }
+      await group.evaluate((el) => el.scrollIntoView({ block: 'start' }))
+      await expect(group.locator('.palette-item').first()).toBeVisible()
+      await group.screenshot({ path: path.join(RUNS, `fix-palette-${i + 1}.png`) })
+      // Also write a named all-shot for the last/primary overview
+      if (i === 0) {
+        await page.locator('.node-palette, [data-testid="node-palette"], aside.palette').first()
+          .screenshot({ path: path.join(RUNS, 'fix-palette-all.png') })
+          .catch(async () => {
+            await page.screenshot({ path: path.join(RUNS, 'fix-palette-all.png') })
+          })
+      }
+      void groupId
+    }
+
+    // Final full-palette shot with every category expanded
+    for (let j = 0; j < count; j += 1) {
+      const g = groups.nth(j)
+      const open = await g.evaluate((el) => el.classList.contains('is-open'))
+      if (!open) {
+        const hdr = g.locator('[data-testid$="-header"]').first()
+        if (await hdr.count()) await hdr.click()
+        else await g.locator('button').first().click()
+      }
+    }
+    const palette = page.locator('.node-palette, [data-testid="node-palette"], aside.palette').first()
+    if (await palette.count()) {
+      await palette.evaluate((el) => {
+        el.scrollTop = 0
+      })
+      await palette.screenshot({ path: path.join(RUNS, 'fix-palette-all.png') })
+    } else {
+      await page.screenshot({ path: path.join(RUNS, 'fix-palette-all.png') })
+    }
+  })
+
+  test('branch anchors leave from coloured chip dots (2, 3, 4+) after add/rename/reorder', async ({
     page,
   }) => {
     await signUpAndOpenEditor(page, 'fix-anchors')
     await addKind(page, 'Decision')
+    await addKind(page, 'Step')
+    await addKind(page, 'Step')
     await addKind(page, 'Step')
     await addKind(page, 'Step')
     await addKind(page, 'Switch')
@@ -497,92 +601,119 @@ test.describe('EDITORFIX: connectors, hints, chips, shapes', () => {
     await addKind(page, 'End')
 
     await layoutNodes(page, [
-      { kind: 'decision', index: 0, x: 120, y: 80 },
-      { kind: 'step', index: 0, x: 40, y: 320 },
-      { kind: 'step', index: 1, x: 280, y: 320 },
-      { kind: 'switch', index: 0, x: 560, y: 80 },
-      { kind: 'end', index: 0, x: 480, y: 340 },
-      { kind: 'end', index: 1, x: 640, y: 340 },
-      { kind: 'end', index: 2, x: 800, y: 340 },
+      { kind: 'decision', index: 0, x: 80, y: 60 },
+      { kind: 'step', index: 0, x: 0, y: 340 },
+      { kind: 'step', index: 1, x: 180, y: 340 },
+      { kind: 'step', index: 2, x: 360, y: 340 },
+      { kind: 'step', index: 3, x: 540, y: 340 },
+      { kind: 'switch', index: 0, x: 780, y: 60 },
+      { kind: 'end', index: 0, x: 700, y: 340 },
+      { kind: 'end', index: 1, x: 860, y: 340 },
+      { kind: 'end', index: 2, x: 1020, y: 340 },
     ])
 
-    // Switch needs 3 branches (default is 2)
+    // Switch → 3 branches; Decision starts at 2
     const switchNode = (await getStoreState(page)).nodes.find((n) => n.kind === 'switch')!
     await page.locator(`.react-flow__node[data-id="${switchNode.id}"]`).click()
     await page.getByRole('tab', { name: 'Settings' }).click()
     await page.getByRole('button', { name: 'Add branch' }).click()
     await expect(page.getByTestId('decision-branch')).toHaveCount(3)
 
-    await page.evaluate(() => {
-      const s = (window as unknown as { __FLOW_BUILDER_STORE__?: StoreApi }).__FLOW_BUILDER_STORE__
-      const state = s!.getState()
-      const nodes = state.diagram?.nodes ?? []
-      const decision = nodes.find((n) => n.kind === 'decision')!
-      const sw = nodes.find((n) => n.kind === 'switch')!
-      const steps = nodes.filter((n) => n.kind === 'step')
-      const ends = nodes.filter((n) => n.kind === 'end')
-      const dBranches = decision.data?.branches ?? []
-      const sBranches = sw.data?.branches ?? []
-      if (dBranches.length < 2 || steps.length < 2) throw new Error('decision setup incomplete')
-      if (sBranches.length < 3 || ends.length < 3) throw new Error('switch setup incomplete')
+    async function wireAllBranches(sourceKind: 'decision' | 'switch', targetKind: 'step' | 'end') {
+      await page.evaluate(
+        ({ sourceKind: sk, targetKind: tk }) => {
+          const s = (window as unknown as { __FLOW_BUILDER_STORE__?: StoreApi }).__FLOW_BUILDER_STORE__
+          const state = s!.getState()
+          const nodes = state.diagram?.nodes ?? []
+          const source = nodes.find((n) => n.kind === sk)!
+          const targets = nodes.filter((n) => n.kind === tk)
+          const branches = source.data?.branches ?? []
+          const existing = new Set(
+            (state.diagram?.edges ?? [])
+              .filter((e) => e.source === source.id)
+              .map((e) => e.sourceHandle),
+          )
+          for (let i = 0; i < branches.length; i += 1) {
+            const b = branches[i]
+            if (existing.has(b.id)) continue
+            const target = targets[i]
+            if (!target) throw new Error(`need target ${i} for ${sk}`)
+            state.addEdgeFromConnection({
+              source: source.id,
+              target: target.id,
+              sourceHandle: b.id,
+              targetHandle: 'top',
+            })
+          }
+        },
+        { sourceKind, targetKind },
+      )
+    }
 
-      state.addEdgeFromConnection({
-        source: decision.id,
-        target: steps[0].id,
-        sourceHandle: dBranches[0].id,
-        targetHandle: 'top',
-      })
-      state.addEdgeFromConnection({
-        source: decision.id,
-        target: steps[1].id,
-        sourceHandle: dBranches[1].id,
-        targetHandle: 'top',
-      })
-      for (let i = 0; i < 3; i += 1) {
-        state.addEdgeFromConnection({
-          source: sw.id,
-          target: ends[i].id,
-          sourceHandle: sBranches[i].id,
-          targetHandle: 'top',
-        })
-      }
-    })
-
-    await page.waitForTimeout(300)
-    const decisionId = (await getStoreState(page)).nodes.find((n) => n.kind === 'decision')!.id
-    const switchId = (await getStoreState(page)).nodes.find((n) => n.kind === 'switch')!.id
-
+    // --- 2 branches (decision default) ---
+    await wireAllBranches('decision', 'step')
+    await page.waitForTimeout(250)
+    let decisionId = (await getStoreState(page)).nodes.find((n) => n.kind === 'decision')!.id
     let decisionAnchors = await measureBranchAnchors(page, decisionId)
     expect(decisionAnchors.length).toBe(2)
     for (const a of decisionAnchors) {
-      expect(a.ok, `decision edge ${a.edgeId} dx=${a.dx} dy=${a.dy}`).toBe(true)
+      expect(a.ok, `2-branch decision ${a.edgeId} dx=${a.dx} dy=${a.dy}`).toBe(true)
     }
 
+    // --- 3 branches (switch) ---
+    await wireAllBranches('switch', 'end')
+    await page.waitForTimeout(250)
+    const switchId = (await getStoreState(page)).nodes.find((n) => n.kind === 'switch')!.id
     let switchAnchors = await measureBranchAnchors(page, switchId)
     expect(switchAnchors.length).toBe(3)
     for (const a of switchAnchors) {
-      expect(a.ok, `switch edge ${a.edgeId} dx=${a.dx} dy=${a.dy}`).toBe(true)
+      expect(a.ok, `3-branch switch ${a.edgeId} dx=${a.dx} dy=${a.dy}`).toBe(true)
     }
 
-    // Add branch on decision, rename long label, reorder — anchors should still hold for existing edges
+    // --- 4+ branches: add two on decision, connect remaining, rename long + reorder ---
+    decisionId = (await getStoreState(page)).nodes.find((n) => n.kind === 'decision')!.id
     await page.locator(`.react-flow__node[data-id="${decisionId}"]`).click()
     await page.getByRole('tab', { name: 'Settings' }).click()
     await page.getByRole('button', { name: 'Add branch' }).click()
+    await page.getByRole('button', { name: 'Add branch' }).click()
+    await expect(page.getByTestId('decision-branch')).toHaveCount(4)
     await page.getByLabel('Branch 1 label').fill('Very long approval outcome label')
     await page.getByLabel('Move branch Very long approval outcome label down').click()
+    await wireAllBranches('decision', 'step')
     await page.waitForTimeout(300)
 
     decisionAnchors = await measureBranchAnchors(page, decisionId)
-    expect(decisionAnchors.length).toBeGreaterThanOrEqual(2)
+    expect(decisionAnchors.length).toBe(4)
     for (const a of decisionAnchors) {
-      expect(a.ok, `after mutate decision edge ${a.edgeId} dx=${a.dx} dy=${a.dy}`).toBe(true)
+      expect(a.ok, `4-branch decision ${a.edgeId} dx=${a.dx} dy=${a.dy}`).toBe(true)
     }
 
     switchAnchors = await measureBranchAnchors(page, switchId)
     for (const a of switchAnchors) {
-      expect(a.ok, `after mutate switch edge ${a.edgeId} dx=${a.dx} dy=${a.dy}`).toBe(true)
+      expect(a.ok, `after mutate switch ${a.edgeId} dx=${a.dx} dy=${a.dy}`).toBe(true)
     }
 
+    // Chip already names the branch — no duplicate edge labels stacked under the card
+    const chipLabels = await page
+      .locator('[data-testid="decision-branch-pill"] .flow-branch-chip')
+      .allTextContents()
+    const edgeLabels = await page.locator('.flow-edge-label').allTextContents()
+    for (const label of edgeLabels) {
+      expect(chipLabels, `edge label "${label}" duplicates a chip`).not.toContain(label)
+    }
+
+    // Frame all nodes so the 4-branch decision and edges from chip dots are visible
+    await page.getByTestId('zoom-chip').click()
+    await page.getByRole('menuitem', { name: 'Zoom to fit' }).click()
+    await page.waitForTimeout(400)
+    await expect(
+      page.locator(`.react-flow__node[data-id="${decisionId}"]`).getByTestId('decision-branch-pill'),
+    ).toHaveCount(4)
+    // Deselect so selection chrome doesn't obscure the coloured dots
+    await page.locator('.react-flow__pane').click({ position: { x: 20, y: 20 } })
+    await page.waitForTimeout(150)
+
     await page.screenshot({ path: path.join(RUNS, 'fix-branch-anchors.png') })
+    await page.screenshot({ path: path.join(RUNS, 'polish-branch-dots.png') })
   })
 })
