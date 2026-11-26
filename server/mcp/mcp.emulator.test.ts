@@ -167,6 +167,44 @@ describe.skipIf(!run)('MCP server (emulator)', () => {
     expect(hijack).toMatchObject({ ok: false, code: 'not_found' })
   })
 
+  it('apply_diagram_edits adding nodes produces a non-overlapping layout', async () => {
+    const { hasOverlappingNodes } = await import('../../shared/layout/index.ts')
+    const port = createAdminDataPort(USER_A)
+    const project = await port.createProject({ name: 'Layout' })
+    const diagram = await port.createDiagram(project.id, 'Seed', {
+      title: 'Seed',
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      nodes: [
+        { id: 'n1', kind: 'start', label: 'Start', position: { x: 0, y: 0 } },
+        { id: 'n2', kind: 'step', label: 'One', position: { x: 0, y: 120 } },
+      ],
+      edges: [{ id: 'e1', source: 'n1', target: 'n2' }],
+    })
+
+    const applied = await executeTool(
+      'apply_diagram_edits',
+      {
+        projectId: project.id,
+        diagramId: diagram.id,
+        ops: [
+          { op: 'addNode', node: { id: 'n3', kind: 'step', label: 'Two', position: { x: 0, y: 0 } } },
+          { op: 'addNode', node: { id: 'n4', kind: 'end', label: 'End', position: { x: 0, y: 0 } } },
+          { op: 'addEdge', edge: { id: 'e2', source: 'n2', target: 'n3' } },
+          { op: 'addEdge', edge: { id: 'e3', source: 'n3', target: 'n4' } },
+        ],
+      },
+      port,
+    )
+    expect(applied.ok).toBe(true)
+    const got = await port.getDiagram(project.id, diagram.id)
+    expect(got).not.toBeNull()
+    if (!got) return
+    const nodes = (got.diagram as { nodes: Array<{ id: string; position: { x: number; y: number }; kind: string }> }).nodes
+    expect(nodes.length).toBe(4)
+    expect(hasOverlappingNodes(nodes)).toBe(false)
+    expect((got.diagram as { fitPending?: boolean }).fitPending).toBe(true)
+  })
+
   it('rejects invalid update_diagram JSON and applies edits; delete needs confirm', async () => {
     const port = createAdminDataPort(USER_A)
     const project = await port.createProject({ name: 'Edits' })
