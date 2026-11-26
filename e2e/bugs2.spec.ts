@@ -103,6 +103,10 @@ test.describe('BUGS2 editor UX', () => {
     await signUpAndOpenEditor(page, 'bugs2-4')
     await addKind(page, 'Step')
     await addKind(page, 'End')
+    // Wait until both nodes are rendered and measured before wiring the edge,
+    // otherwise the edge can be created before React Flow knows the handles.
+    await expect(page.locator('.react-flow__node')).toHaveCount(2, { timeout: 10_000 })
+    await expect(page.locator('.react-flow__node .react-flow__handle').first()).toBeAttached()
 
     // Create a connector via the store (canvas drag is flaky under headless).
     await page.evaluate(() => {
@@ -135,7 +139,7 @@ test.describe('BUGS2 editor UX', () => {
     })
 
     const edge = page.locator('.react-flow__edge').first()
-    await expect(edge).toBeVisible({ timeout: 5_000 })
+    await expect(edge).toBeVisible({ timeout: 10_000 })
     await edge.click({ force: true })
 
     // Set label from the properties panel; it renders on the canvas.
