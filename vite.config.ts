@@ -12,6 +12,7 @@ export default defineConfig({
     include: [
       'src/**/*.{test,spec}.{ts,tsx}',
       'shared/**/*.{test,spec}.ts',
+      'server/**/*.{test,spec}.ts',
       'tests/**/*.{test,spec}.{ts,tsx}',
     ],
     // Emulator-backed tests share one Auth/Firestore instance. Serialise files and

@@ -54,6 +54,12 @@ vi.mock('../ai/providers/probe', () => ({
   }),
 }))
 
+vi.mock('../data/mcpTokens', () => ({
+  listMcpTokens: vi.fn().mockResolvedValue([]),
+  createMcpToken: vi.fn(),
+  revokeMcpToken: vi.fn(),
+}))
+
 describe('SettingsPage', () => {
   beforeEach(() => {
     localStorage.clear()
@@ -76,6 +82,8 @@ describe('SettingsPage', () => {
     await screen.findByRole('heading', { name: 'Settings' })
     expect(screen.getByTestId('ai-providers-settings')).toBeInTheDocument()
     expect(screen.getByText(/Keys stay in this browser/i)).toBeInTheDocument()
+    expect(screen.getByTestId('mcp-connect-section')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Connect your AI agent' })).toBeInTheDocument()
   })
 
   it('saves an AI provider connection in the browser only', async () => {

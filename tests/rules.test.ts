@@ -189,4 +189,71 @@ describe.skipIf(!run)('Firestore rules', () => {
       setDoc(doc(other, 'users', OWNER, 'agentChats', 'c1', 'messages', 'm2'), { text: 'no' }),
     )
   })
+
+  it('lets the owner create, read, revoke and delete their mcpTokens', async () => {
+    const owner = env.authenticatedContext(OWNER).firestore()
+    const ref = doc(owner, 'mcpTokens', 'abc123hash')
+    await assertSucceeds(
+      setDoc(ref, {
+        uid: OWNER,
+        name: 'Cursor',
+        createdAt: new Date(),
+        lastUsedAt: null,
+        revoked: false,
+      }),
+    )
+    await assertSucceeds(getDoc(ref))
+    await assertSucceeds(updateDoc(ref, { revoked: true }))
+    await assertSucceeds(updateDoc(ref, { name: 'Cursor old' }))
+    await assertSucceeds(deleteDoc(ref))
+  })
+
+  it('blocks another user from reading or writing mcpTokens', async () => {
+    await env.withSecurityRulesDisabled(async (context) => {
+      const adminDb = context.firestore()
+      await setDoc(doc(adminDb, 'mcpTokens', 'owner-hash'), {
+        uid: OWNER,
+        name: 'Mine',
+        createdAt: new Date(),
+        lastUsedAt: null,
+        revoked: false,
+      })
+    })
+
+    const other = env.authenticatedContext(OTHER).firestore()
+    await assertFails(getDoc(doc(other, 'mcpTokens', 'owner-hash')))
+    await assertFails(
+      setDoc(doc(other, 'mcpTokens', 'stolen-hash'), {
+        uid: OWNER,
+        name: 'Nope',
+        createdAt: new Date(),
+        lastUsedAt: null,
+        revoked: false,
+      }),
+    )
+    await assertFails(updateDoc(doc(other, 'mcpTokens', 'owner-hash'), { revoked: true }))
+    await assertFails(deleteDoc(doc(other, 'mcpTokens', 'owner-hash')))
+  })
+
+  it('rejects mcpToken create when uid mismatches or revoked is true', async () => {
+    const owner = env.authenticatedContext(OWNER).firestore()
+    await assertFails(
+      setDoc(doc(owner, 'mcpTokens', 'bad-uid'), {
+        uid: OTHER,
+        name: 'Bad',
+        createdAt: new Date(),
+        lastUsedAt: null,
+        revoked: false,
+      }),
+    )
+    await assertFails(
+      setDoc(doc(owner, 'mcpTokens', 'already-revoked'), {
+        uid: OWNER,
+        name: 'Bad',
+        createdAt: new Date(),
+        lastUsedAt: null,
+        revoked: true,
+      }),
+    )
+  })
 })
