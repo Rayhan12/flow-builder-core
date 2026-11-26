@@ -2,8 +2,11 @@
  * Browser-facing layout: delegates to shared pure ELK (worker for large graphs).
  */
 import {
+  detectConflicts,
   layoutDiagram as layoutDiagramShared,
   placeNodesIncremental as placeIncrementalShared,
+  resolveConflicts,
+  summarizeConflicts,
   type LayoutDirection,
   type LayoutOptions,
 } from '../../shared/layout/index.ts'
@@ -173,6 +176,9 @@ declare global {
       layoutDiagram: typeof layoutDiagram
       placeNodesIncremental: typeof placeNodesIncremental
       autoLayoutDiagram: typeof autoLayoutDiagram
+      resolveConflicts: typeof resolveConflicts
+      detectConflicts: typeof detectConflicts
+      summarizeConflicts: typeof summarizeConflicts
     }
   }
 }
@@ -182,5 +188,8 @@ if (typeof window !== 'undefined') {
     layoutDiagram,
     placeNodesIncremental,
     autoLayoutDiagram,
+    resolveConflicts,
+    detectConflicts,
+    summarizeConflicts,
   }
 }

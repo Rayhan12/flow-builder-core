@@ -67,12 +67,7 @@ export function toFlowNode(
           width: collapsed ? 280 : width,
           height: collapsed ? 44 : height,
         }
-      : node.kind === 'decision' ||
-          node.kind === 'switch' ||
-          node.kind === 'sticky' ||
-          node.kind === 'shape'
-        ? { width, height }
-        : undefined,
+      : { width, height },
     data: { diagramNode: node },
   }
 }

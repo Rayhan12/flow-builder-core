@@ -12,6 +12,13 @@ const PositionSchema = z.object({
   y: z.number().finite(),
 })
 
+const WaypointSchema = z.object({
+  x: z.number().finite(),
+  y: z.number().finite(),
+  /** Set by auto-layout when the bend came from ELK / the independent router. */
+  routed: z.boolean().optional(),
+})
+
 const SizeSchema = z.object({
   w: z.number().finite().positive(),
   h: z.number().finite().positive(),
@@ -385,7 +392,7 @@ export const DiagramEdgeSchema = z.object({
   label: z.string().max(MAX_LABEL_LENGTH).optional(),
   color: z.string().optional(),
   type: z.enum(['elbow', 'straight', 'curved']).optional(),
-  waypoints: z.array(PositionSchema).max(32).optional(),
+  waypoints: z.array(WaypointSchema).max(32).optional(),
   startMarker: EdgeMarkerSchema.optional(),
   endMarker: EdgeMarkerSchema.optional(),
   style: z

@@ -401,6 +401,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   moveNodes: (updates, recordHistory) =>
     set((state) => {
       const map = new Map(updates.map((u) => [u.id, u.position]))
+      const movedIds = new Set(map.keys())
       return withHistory(
         state,
         (d) => ({
@@ -408,6 +409,19 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           nodes: d.nodes.map((n) => {
             const pos = map.get(n.id)
             return pos ? { ...n, position: pos, manuallyPositioned: true } : n
+          }),
+          // Drop auto-routed bends when endpoints move; keep manual waypoints.
+          edges: d.edges.map((e) => {
+            if (!movedIds.has(e.source) && !movedIds.has(e.target)) return e
+            if (!e.waypoints?.length) return e
+            if (e.waypoints.every((w) => w.routed)) {
+              const { waypoints: _drop, ...rest } = e
+              return rest
+            }
+            return {
+              ...e,
+              waypoints: e.waypoints.filter((w) => !w.routed),
+            }
           }),
         }),
         { record: recordHistory },

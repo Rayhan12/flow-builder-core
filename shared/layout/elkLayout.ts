@@ -3,7 +3,16 @@
  * Uses elkjs/lib/elk.bundled.js so it runs in both browser and Node.
  */
 import ELK, { type ElkExtendedEdge, type ElkNode, type ElkPort } from 'elkjs/lib/elk.bundled.js'
+import { detectConflicts, resolveConflicts } from './conflicts.ts'
 import {
+  extractElkBendPoints,
+  routeEdgesIndependently,
+  separateSharedSegments,
+  type Point,
+} from './edgeRouting.ts'
+import {
+  EDGE_EDGE_SPACING,
+  EDGE_NODE_SPACING,
   GROUP_HEADER,
   GROUP_PADDING,
   LAYER_SPACING,
@@ -18,6 +27,7 @@ import type {
   LayoutNodeLike,
   LayoutOptions,
   LayoutResult,
+  LayoutWaypoint,
 } from './types.ts'
 
 type Branch = { id: string; label: string }
@@ -108,16 +118,13 @@ function targetPortRef(edge: LayoutEdgeLike, nodesById: Map<string, LayoutNodeLi
   return edge.target
 }
 
-function extractWaypoints(edge: ElkExtendedEdge): Array<{ x: number; y: number }> | undefined {
+function extractWaypoints(edge: ElkExtendedEdge): LayoutWaypoint[] | undefined {
   const sections = edge.sections
   if (!sections?.length) return undefined
-  const points: Array<{ x: number; y: number }> = []
+  const points: LayoutWaypoint[] = []
   for (const section of sections) {
-    if (section.bendPoints?.length) {
-      for (const p of section.bendPoints) {
-        points.push({ x: p.x ?? 0, y: p.y ?? 0 })
-      }
-    }
+    const bends = extractElkBendPoints(section)
+    if (bends) points.push(...bends)
   }
   return points.length ? points : undefined
 }
@@ -127,12 +134,14 @@ async function layoutFlatElk(
   edges: LayoutEdgeLike[],
   direction: LayoutDirection,
   spacing: { node: number; layer: number },
+  options: { legacyEdgeRouting?: boolean } = {},
 ): Promise<{
   positions: Map<string, { x: number; y: number }>
-  waypoints: Map<string, Array<{ x: number; y: number }>>
+  waypoints: Map<string, LayoutWaypoint[]>
 }> {
   const elk = new ELK()
   const nodesById = new Map(nodes.map((n) => [n.id, n]))
+  const legacy = !!options.legacyEdgeRouting
 
   const children: ElkNode[] = nodes.map((n) => {
     const size = defaultNodeSize(n)
@@ -181,10 +190,18 @@ async function layoutFlatElk(
       'elk.spacing.nodeNode': String(spacing.node),
       'elk.layered.spacing.nodeNodeBetweenLayers': String(spacing.layer),
       'elk.edgeRouting': 'ORTHOGONAL',
+      'elk.spacing.edgeEdge': String(EDGE_EDGE_SPACING),
+      'elk.spacing.edgeNode': String(EDGE_NODE_SPACING),
+      'elk.layered.spacing.edgeEdgeBetweenLayers': String(EDGE_EDGE_SPACING),
+      'elk.layered.spacing.edgeNodeBetweenLayers': String(EDGE_NODE_SPACING),
+      'elk.layered.mergeEdges': 'false',
       'elk.layered.crossingMinimization.strategy': 'LAYER_SWEEP',
       'elk.layered.nodePlacement.strategy': 'BRANDES_KOEPF',
       'elk.layered.considerModelOrder.strategy': 'NODES_AND_EDGES',
       'org.eclipse.elk.layered.crossingMinimization.forceNodeModelOrder': 'true',
+      // Keep self-loop / back-edge boxes from wrapping around unrelated nodes.
+      'elk.layered.edgeRouting.selfLoopDistribution': 'EQUALLY',
+      'elk.layered.edgeRouting.splines.sloppy.layerSpacingFactor': '1.2',
     },
     children,
     edges: elkEdges,
@@ -196,14 +213,15 @@ async function layoutFlatElk(
     positions.set(child.id, { x: child.x ?? 0, y: child.y ?? 0 })
   }
 
-  const waypoints = new Map<string, Array<{ x: number; y: number }>>()
+  const elkWaypoints = new Map<string, LayoutWaypoint[]>()
   for (const edge of (layouted.edges ?? []) as ElkExtendedEdge[]) {
     const pts = extractWaypoints(edge)
-    if (pts) waypoints.set(edge.id, pts)
+    if (pts) elkWaypoints.set(edge.id, pts)
   }
 
   // Ensure decision/switch branch targets follow chip order left→right (DOWN)
   // or top→bottom (RIGHT), even if ELK flipped a layer.
+  let reordered = false
   for (const n of nodes) {
     if (n.kind !== 'decision' && n.kind !== 'switch') continue
     const branches = branchesOf(n)
@@ -218,25 +236,84 @@ async function layoutFlatElk(
     const coords = targets.map((t) => positions.get(t.id)!)
     if (direction === 'DOWN') {
       const sortedX = [...coords].map((c) => c.x).sort((a, b) => a - b)
-      targets
-        .slice()
-        .sort((a, b) => a.index - b.index)
-        .forEach((t, i) => {
-          const pos = positions.get(t.id)!
-          positions.set(t.id, { x: sortedX[i], y: pos.y })
-        })
+      const ordered = targets.slice().sort((a, b) => a.index - b.index)
+      ordered.forEach((t, i) => {
+        const pos = positions.get(t.id)!
+        if (pos.x !== sortedX[i]) reordered = true
+        positions.set(t.id, { x: sortedX[i], y: pos.y })
+      })
     } else {
       const sortedY = [...coords].map((c) => c.y).sort((a, b) => a - b)
-      targets
-        .slice()
-        .sort((a, b) => a.index - b.index)
-        .forEach((t, i) => {
-          const pos = positions.get(t.id)!
-          positions.set(t.id, { x: pos.x, y: sortedY[i] })
-        })
+      const ordered = targets.slice().sort((a, b) => a.index - b.index)
+      ordered.forEach((t, i) => {
+        const pos = positions.get(t.id)!
+        if (pos.y !== sortedY[i]) reordered = true
+        positions.set(t.id, { x: pos.x, y: sortedY[i] })
+      })
     }
   }
 
+  // After a branch-order fix, ELK bend points no longer match node positions.
+  // Re-route every edge on its own channel. Legacy mode keeps raw ELK buses.
+  if (legacy) {
+    return { positions, waypoints: elkWaypoints }
+  }
+
+  const placedNodes: LayoutNodeLike[] = nodes.map((n) => {
+    const pos = positions.get(n.id)
+    return pos ? { ...n, position: pos } : n
+  })
+
+  if (reordered) {
+    const independent = routeEdgesIndependently(
+      placedNodes,
+      edges,
+      (n) => defaultNodeSize(n),
+      direction,
+    )
+    return { positions, waypoints: independent }
+  }
+
+  // Keep ELK bends but separate any leftover shared bus segments.
+  const forSeparate = edges.map((e) => {
+    const bends = elkWaypoints.get(e.id) ?? []
+    const src = placedNodes.find((n) => n.id === e.source)
+    const tgt = placedNodes.find((n) => n.id === e.target)
+    const sizeSrc = src ? defaultNodeSize(src) : { w: 200, h: 80 }
+    const sizeTgt = tgt ? defaultNodeSize(tgt) : { w: 200, h: 80 }
+    const start = src
+      ? {
+          x: src.position.x + sizeSrc.w / 2,
+          y: direction === 'DOWN' ? src.position.y + sizeSrc.h : src.position.y + sizeSrc.h / 2,
+        }
+      : { x: 0, y: 0 }
+    const end = tgt
+      ? {
+          x: tgt.position.x + sizeTgt.w / 2,
+          y: direction === 'DOWN' ? tgt.position.y : tgt.position.y + sizeTgt.h / 2,
+        }
+      : { x: 0, y: 0 }
+    const points: Point[] = [start, ...bends, end]
+    return {
+      id: e.id,
+      source: e.source,
+      sourceHandle: e.sourceHandle,
+      points,
+    }
+  })
+  const separated = separateSharedSegments(forSeparate, EDGE_EDGE_SPACING)
+  const waypoints = new Map<string, LayoutWaypoint[]>()
+  for (const e of edges) {
+    const full = separated.get(e.id)
+    if (!full || full.length < 2) {
+      const bends = elkWaypoints.get(e.id)
+      if (bends) waypoints.set(e.id, bends)
+      continue
+    }
+    // Drop estimated endpoints; FlowEdge uses React Flow handles.
+    const bends = full.slice(1, -1)
+    waypoints.set(e.id, bends)
+  }
   return { positions, waypoints }
 }
 
@@ -302,6 +379,7 @@ export async function layoutDiagram<N extends LayoutNodeLike, E extends LayoutEd
     node: options.nodeNodeSpacing ?? NODE_NODE_SPACING,
     layer: options.layerSpacing ?? LAYER_SPACING,
   }
+  const flatOpts = { legacyEdgeRouting: !!options.legacyEdgeRouting }
   const nextNodes = nodes.map((n) => ({ ...n, position: { ...n.position } })) as N[]
   const nextEdges = edges.map((e) => ({ ...e })) as E[]
   const byId = new Map(nextNodes.map((n) => [n.id, n]))
@@ -322,7 +400,13 @@ export async function layoutDiagram<N extends LayoutNodeLike, E extends LayoutEd
     if (children.length === 0) continue
     const childIds = new Set(children.map((n) => n.id))
     const childEdges = nextEdges.filter((e) => childIds.has(e.source) && childIds.has(e.target))
-    const { positions, waypoints } = await layoutFlatElk(children, childEdges, direction, spacing)
+    const { positions, waypoints } = await layoutFlatElk(
+      children,
+      childEdges,
+      direction,
+      spacing,
+      flatOpts,
+    )
 
     let maxX = 0
     let maxY = 0
@@ -382,7 +466,13 @@ export async function layoutDiagram<N extends LayoutNodeLike, E extends LayoutEd
   let mainBounds = { minX: 0, minY: 0, maxX: 0, maxY: 0 }
 
   if (allLayout.length > 0) {
-    const { positions, waypoints } = await layoutFlatElk(allLayout, flowEdges, direction, spacing)
+    const { positions, waypoints } = await layoutFlatElk(
+      allLayout,
+      flowEdges,
+      direction,
+      spacing,
+      flatOpts,
+    )
 
     let minX = Infinity
     let minY = Infinity
@@ -409,6 +499,12 @@ export async function layoutDiagram<N extends LayoutNodeLike, E extends LayoutEd
     for (const edge of nextEdges) {
       const pts = waypoints.get(edge.id)
       if (pts) edge.waypoints = pts
+      else if (!flatOpts.legacyEdgeRouting) {
+        // Clear stale routed waypoints when ELK had a straight edge.
+        if (edge.waypoints?.some((w) => w.routed)) {
+          delete edge.waypoints
+        }
+      }
     }
   }
 
@@ -422,6 +518,26 @@ export async function layoutDiagram<N extends LayoutNodeLike, E extends LayoutEd
   for (const node of nextNodes) {
     if (node.parentId && !byId.has(node.parentId)) {
       delete node.parentId
+    }
+  }
+
+  if (!options.skipConflictResolve && !flatOpts.legacyEdgeRouting) {
+    const report = detectConflicts(nextNodes, nextEdges, { direction })
+    if (report.nodeOverlaps.length > 0 || report.edgesThroughNodes.length > 0) {
+      const fixed = resolveConflicts(nextNodes, nextEdges, { direction })
+      return { nodes: fixed.nodes, edges: fixed.edges }
+    }
+    // Final pass: unique channels from settled positions so no edge inherits an
+    // ELK bend that still clips a neighbour after branch-order fixes.
+    const routed = routeEdgesIndependently(
+      nextNodes,
+      nextEdges,
+      (n) => defaultNodeSize(n),
+      direction,
+    )
+    for (const edge of nextEdges) {
+      const pts = routed.get(edge.id)
+      if (pts) edge.waypoints = pts
     }
   }
 

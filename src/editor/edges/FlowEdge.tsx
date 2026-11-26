@@ -30,12 +30,34 @@ function pointAlongPath(
   return { x: p.x, y: p.y }
 }
 
+type Waypoint = { x: number; y: number; routed?: boolean }
+
+function nearlyEq(a: number, b: number): boolean {
+  return Math.abs(a - b) < 0.75
+}
+
+/** Insert one bend when two points differ in both axes so the path stays orthogonal. */
+function ensureOrthogonal(points: Array<{ x: number; y: number }>): Array<{ x: number; y: number }> {
+  if (points.length < 2) return points
+  const out: Array<{ x: number; y: number }> = [points[0]]
+  for (let i = 1; i < points.length; i += 1) {
+    const prev = out[out.length - 1]
+    const cur = points[i]
+    if (!nearlyEq(prev.x, cur.x) && !nearlyEq(prev.y, cur.y)) {
+      // Prefer vertical then horizontal when coming from a handle (common for DOWN flow).
+      out.push({ x: prev.x, y: cur.y })
+    }
+    out.push(cur)
+  }
+  return out
+}
+
 function buildWaypointPath(
   sourceX: number,
   sourceY: number,
   targetX: number,
   targetY: number,
-  waypoints: Array<{ x: number; y: number }>,
+  waypoints: Waypoint[],
   edgeType: 'elbow' | 'straight' | 'curved',
 ): [string, number, number] {
   if (!waypoints.length) {
@@ -57,14 +79,19 @@ function buildWaypointPath(
     return [d, lx, ly]
   }
 
-  const points = [{ x: sourceX, y: sourceY }, ...waypoints, { x: targetX, y: targetY }]
-  if (edgeType === 'straight') {
+  const routed = waypoints.some((w) => w.routed)
+  const raw = [{ x: sourceX, y: sourceY }, ...waypoints.map((w) => ({ x: w.x, y: w.y })), { x: targetX, y: targetY }]
+  // Routed bends from ELK / the independent router are already orthogonal; only
+  // bridge handle endpoints. Manual waypoints keep the older elbow fill-in.
+  const points = routed ? ensureOrthogonal(raw) : raw
+
+  if (edgeType === 'straight' || routed) {
     const d = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')
     const mid = points[Math.floor(points.length / 2)]
     return [d, mid.x, mid.y]
   }
 
-  // Elbow / curved with waypoints: orthogonal segments through each bend.
+  // Manual elbow / curved with waypoints: orthogonal segments through each bend.
   let d = `M ${points[0].x} ${points[0].y}`
   for (let i = 1; i < points.length; i += 1) {
     const prev = points[i - 1]
@@ -173,15 +200,22 @@ export function FlowEdge({
   const waypoints = edge?.waypoints ?? []
   const branchHandleId = edge?.sourceHandle ?? sourceHandleId ?? undefined
   const sourceNode = useEditorStore((s) => s.diagram?.nodes.find((n) => n.id === source))
-  const branchChipLabel =
+  const branchMeta =
     sourceNode &&
     (sourceNode.kind === 'decision' || sourceNode.kind === 'switch') &&
     branchHandleId
-      ? sourceNode.data.branches.find((b) => b.id === branchHandleId)?.label
+      ? sourceNode.data.branches.find((b) => b.id === branchHandleId)
       : undefined
-  // Chip already names the branch — hide duplicate edge labels so they don't stack under the card.
+  const branchChipLabel = branchMeta?.label
+  // Chip already names the branch — hide the mid-edge duplicate on short hops.
+  // Long routed edges still show a small source-side branch tag.
+  const pathLenApprox = Math.hypot(targetX - sourceX, targetY - sourceY)
+  const isLongBranchEdge = Boolean(branchChipLabel) && pathLenApprox > 140
   const isDuplicateBranchLabel =
-    typeof label === 'string' && Boolean(branchChipLabel) && label === branchChipLabel
+    typeof label === 'string' &&
+    Boolean(branchChipLabel) &&
+    label === branchChipLabel &&
+    !isLongBranchEdge
 
   const [path, midX, midY] = useMemo(() => {
     if (waypoints.length) {
@@ -238,15 +272,25 @@ export function FlowEdge({
   const wrapRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const color = resolveColor(edge?.style?.color ?? edge?.color, 'gray')
+  const branchColorKey =
+    (branchMeta && 'color' in branchMeta
+      ? (branchMeta as { color?: string }).color
+      : undefined) ?? edge?.style?.color ?? edge?.color
+  const color = resolveColor(branchColorKey, branchChipLabel ? 'amber' : 'gray')
   const isNeutral = color.solid === '#98a2b3'
-  const stroke = selected
+  const stroke = selected || hovered
     ? 'var(--color-accent)'
     : isNeutral
-      ? '#8b8d98'
+      ? branchChipLabel
+        ? color.solid
+        : '#8b8d98'
       : color.solid
-  const strokeWidth = edge?.style?.width ?? (selected ? 2 : 1.5)
+  const strokeWidth = edge?.style?.width ?? (selected || hovered ? 2.5 : 1.5)
   const dash = edge?.style?.dash === 'dashed' ? '6 4' : undefined
+  const sourceLabel =
+    isLongBranchEdge && branchChipLabel
+      ? branchChipLabel
+      : null
 
   const startCustom = needsCustomMarker(edge?.startMarker) ? edge?.startMarker : undefined
   const endCustom = needsCustomMarker(edge?.endMarker) ? edge?.endMarker : undefined
@@ -369,7 +413,55 @@ export function FlowEdge({
         style={{ stroke, strokeWidth, strokeDasharray: dash }}
         interactionWidth={24}
       />
+      {/* Wider invisible hit path so hover highlights the edge and its ends. */}
+      <path
+        d={path}
+        fill="none"
+        stroke="transparent"
+        strokeWidth={24}
+        className="flow-edge-hit"
+        data-testid="edge-hit"
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => {
+          if (!menuOpen && !editing) setHovered(false)
+        }}
+      />
+      {hovered || selected ? (
+        <>
+          <circle
+            cx={sourceX}
+            cy={sourceY}
+            r={5}
+            className="flow-edge-endpoint"
+            data-testid="edge-endpoint-source"
+            style={{ fill: stroke }}
+          />
+          <circle
+            cx={targetX}
+            cy={targetY}
+            r={5}
+            className="flow-edge-endpoint"
+            data-testid="edge-endpoint-target"
+            style={{ fill: stroke }}
+          />
+        </>
+      ) : null}
       <EdgeLabelRenderer>
+        {sourceLabel ? (
+          <div
+            className="flow-edge-branch-tag"
+            data-testid="edge-branch-tag"
+            style={{
+              position: 'absolute',
+              transform: `translate(-50%, -120%) translate(${sourceX}px, ${sourceY + 18}px)`,
+              pointerEvents: 'none',
+              borderColor: color.solid,
+              color: color.solid,
+            }}
+          >
+            {sourceLabel}
+          </div>
+        ) : null}
         {selected && edgeType !== 'curved'
           ? waypoints.map((wp, index) => (
               <div

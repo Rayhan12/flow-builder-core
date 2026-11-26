@@ -12,6 +12,13 @@ export type LayoutNodeLike = {
   data?: unknown
 }
 
+export type LayoutWaypoint = {
+  x: number
+  y: number
+  /** True when the point came from ELK / the independent router (not a manual bend). */
+  routed?: boolean
+}
+
 export type LayoutEdgeLike = {
   id: string
   source: string
@@ -19,7 +26,7 @@ export type LayoutEdgeLike = {
   sourceHandle?: string
   targetHandle?: string
   label?: string
-  waypoints?: Array<{ x: number; y: number }>
+  waypoints?: LayoutWaypoint[]
 }
 
 export type LayoutOptions = {
@@ -30,6 +37,13 @@ export type LayoutOptions = {
   nodeNodeSpacing?: number
   /** Spacing between layers. Default 100. */
   layerSpacing?: number
+  /**
+   * Previous bus-style routing (shared channels, no post-separation). Used for
+   * before/after screenshots and regression fixtures.
+   */
+  legacyEdgeRouting?: boolean
+  /** Skip conflict resolve push-apart after layout. */
+  skipConflictResolve?: boolean
 }
 
 export type LayoutResult<N extends LayoutNodeLike, E extends LayoutEdgeLike> = {

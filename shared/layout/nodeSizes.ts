@@ -17,9 +17,13 @@ export const BRANCH_CHIP_PAD = 24
 
 export const NODE_NODE_SPACING = 60
 export const LAYER_SPACING = 100
+export const EDGE_EDGE_SPACING = 16
+export const EDGE_NODE_SPACING = 20
 export const GROUP_PADDING = 32
 export const GROUP_HEADER = 36
 export const SIDE_COLUMN_GAP = 80
+/** Max card width when growing for long titles. */
+export const MAX_LABEL_NODE_WIDTH = 360
 
 /** Annotation-like kinds that stay put (or go to a side column) when unconnected. */
 export const ANNOTATION_KINDS = new Set([
@@ -112,12 +116,25 @@ export function defaultNodeSize(node: SizeNode): { w: number; h: number } {
   if (node.kind === 'sticky') return { w: 192, h: 160 }
   if (node.kind === 'shape') return { w: 160, h: 96 }
   if (node.kind === 'divider') return { w: 240, h: 24 }
-  if (node.kind === 'start' || node.kind === 'end') return { w: 176, h: 64 }
+  if (node.kind === 'start' || node.kind === 'end') {
+    const labelLen = (node.label ?? '').length
+    const w = Math.min(
+      MAX_LABEL_NODE_WIDTH,
+      Math.max(176, 48 + labelLen * 7.2),
+    )
+    // Tall enough for a 2-line wrap when the label is long.
+    const h = labelLen > 22 ? 80 : 64
+    return { w, h }
+  }
   if (node.kind === 'note' || node.kind === 'callout') return { w: 200, h: 96 }
-  // Grow a little with long labels so cards do not collide after layout.
+  // Grow with long labels so cards show full titles (wrap to 2 lines in CSS).
   const labelLen = (node.label ?? '').length
-  const extra = Math.min(120, Math.max(0, labelLen - 18) * 6)
-  return { w: DEFAULT_NODE_WIDTH + extra, h: DEFAULT_NODE_HEIGHT }
+  const w = Math.min(
+    MAX_LABEL_NODE_WIDTH,
+    Math.max(DEFAULT_NODE_WIDTH, 48 + labelLen * 7.2),
+  )
+  const h = labelLen > 28 ? DEFAULT_NODE_HEIGHT + 20 : DEFAULT_NODE_HEIGHT
+  return { w, h }
 }
 
 export function isAnnotationKind(kind: string): boolean {
