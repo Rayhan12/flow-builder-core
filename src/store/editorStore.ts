@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import {
   isContainerKind,
+  MAX_LABEL_LENGTH,
   type Diagram,
   type DiagramEdge,
   type DiagramNode,
@@ -14,7 +15,8 @@ import {
   type AlignMode,
   type DistributeAxis,
 } from '../editor/arrange'
-import { GRID_SIZE } from '../editor/alignment'
+import { GRID_SIZE, nodeBox } from '../editor/alignment'
+import { absolutePosition } from '../editor/flowTypes'
 import { createNodeOfKind, newEdgeId, newNodeId } from '../editor/kinds'
 import type { SideHandleId } from '../editor/nodes/sideIds'
 import { applyZOrder, type ZOrderAction } from '../editor/zOrder'
@@ -23,6 +25,10 @@ const MAX_HISTORY = 80
 const PASTE_OFFSET = 40
 const DEFAULT_NODE_WIDTH_FALLBACK = 256
 const DEFAULT_NODE_HEIGHT_FALLBACK = 64
+const GROUP_PADDING = 24
+const GROUP_HEADER = 44
+
+export type LayerPlacement = 'before' | 'after' | 'inside'
 
 type ClipboardPayload = {
   nodes: DiagramNode[]
@@ -118,9 +124,18 @@ type EditorState = {
   showAllHidden: () => void
   toggleLocked: (ids: string[]) => void
   reorderZ: (ids: string[], action: ZOrderAction) => void
+  groupSelection: () => string | null
+  ungroupSelection: () => boolean
+  renameNode: (id: string, label: string) => void
+  reorderLayer: (
+    dragId: string,
+    targetId: string,
+    placement: 'before' | 'after' | 'inside',
+  ) => boolean
 
   copySelection: () => boolean
   pasteClipboard: (at?: { x: number; y: number }) => boolean
+  pasteClipboardInPlace: () => boolean
   duplicateSelection: () => boolean
   selectSimilar: () => boolean
 
@@ -177,6 +192,28 @@ function remapClipboard(
     }))
 
   return { nodes, edges, idMap }
+}
+
+function isAncestorOf(nodes: DiagramNode[], ancestorId: string, nodeId: string): boolean {
+  let current = nodes.find((n) => n.id === nodeId)
+  const seen = new Set<string>()
+  while (current?.parentId && !seen.has(current.id)) {
+    if (current.parentId === ancestorId) return true
+    seen.add(current.id)
+    const parentId: string = current.parentId
+    current = nodes.find((n) => n.id === parentId)
+  }
+  return false
+}
+
+function siblingOrder(nodes: DiagramNode[], parentId: string | undefined): DiagramNode[] {
+  const siblings = nodes.filter((n) => n.parentId === parentId)
+  const z = (n: DiagramNode) =>
+    typeof n.zIndex === 'number' ? n.zIndex : isContainerKind(n.kind) ? -1 : 1
+  return siblings
+    .map((n, i) => ({ n, i }))
+    .sort((a, b) => z(a.n) - z(b.n) || a.i - b.i)
+    .map((x) => x.n)
 }
 
 function cloneBody(diagram: Diagram): HistoryEntry {
@@ -734,11 +771,234 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     )
   },
 
+  renameNode: (id, label) => {
+    const next = label.trim().slice(0, MAX_LABEL_LENGTH)
+    if (!next) return
+    const current = get().diagram?.nodes.find((n) => n.id === id)
+    if (!current) return
+    const currentLabel =
+      current.kind === 'group' || current.kind === 'section' ? current.data.label : current.label
+    if (currentLabel === next && current.label === next) return
+    set((state) =>
+      withHistory(state, (d) => ({
+        ...d,
+        nodes: d.nodes.map((n) => {
+          if (n.id !== id) return n
+          if (n.kind === 'group' || n.kind === 'section') {
+            return { ...n, label: next, data: { ...n.data, label: next } } as DiagramNode
+          }
+          return { ...n, label: next } as DiagramNode
+        }),
+      })),
+    )
+  },
+
+  reorderLayer: (dragId, targetId, placement) => {
+    const state = get()
+    const d = state.diagram
+    if (!d || dragId === targetId) return false
+    const drag = d.nodes.find((n) => n.id === dragId)
+    const target = d.nodes.find((n) => n.id === targetId)
+    if (!drag || !target || drag.locked) return false
+    // Never drop a layer into its own subtree.
+    if (isAncestorOf(d.nodes, dragId, targetId)) return false
+
+    let newParentId: string | undefined
+    if (placement === 'inside') {
+      if (!isContainerKind(target.kind)) return false
+      newParentId = target.id
+    } else {
+      newParentId = target.parentId
+    }
+
+    const dragAbs = absolutePosition(drag, d.nodes)
+    let changed = false
+    set((s) =>
+      withHistory(s, (diagram) => {
+        const nodes = diagram.nodes
+        let position = drag.position
+        if (newParentId !== drag.parentId) {
+          if (newParentId) {
+            const parent = nodes.find((n) => n.id === newParentId)!
+            const parentAbs = absolutePosition(parent, nodes)
+            position = { x: dragAbs.x - parentAbs.x, y: dragAbs.y - parentAbs.y }
+          } else {
+            position = dragAbs
+          }
+        }
+
+        const others = siblingOrder(nodes, newParentId).filter((n) => n.id !== dragId)
+        let insertAt: number
+        if (placement === 'inside') {
+          // Top of the container's stack (front).
+          insertAt = others.length
+        } else {
+          const targetIndex = others.findIndex((n) => n.id === targetId)
+          // Layers list shows front at top: "before" means visually above (higher z).
+          insertAt = placement === 'before' ? targetIndex + 1 : targetIndex
+        }
+        const ordered = [...others]
+        ordered.splice(insertAt, 0, drag)
+        const zById = new Map<string, number>()
+        ordered.forEach((n, index) => {
+          zById.set(n.id, (isContainerKind(n.kind) ? -1000 : 0) + index)
+        })
+
+        changed = true
+        return {
+          ...diagram,
+          nodes: nodes.map((n) => {
+            if (n.id === dragId) {
+              return {
+                ...n,
+                parentId: newParentId,
+                position,
+                zIndex: zById.get(n.id),
+              } as DiagramNode
+            }
+            const z = zById.get(n.id)
+            return z === undefined ? n : ({ ...n, zIndex: z } as DiagramNode)
+          }),
+        }
+      }),
+    )
+    return changed
+  },
+
+  groupSelection: () => {
+    const state = get()
+    const d = state.diagram
+    if (!d || state.selectedNodeIds.length === 0) return null
+    const selectedSet = new Set(state.selectedNodeIds)
+    const candidates = d.nodes.filter((n) => selectedSet.has(n.id) && !n.locked && !n.hidden)
+    // Skip nodes already carried by a selected ancestor container.
+    const top = candidates.filter(
+      (n) => !candidates.some((other) => other.id !== n.id && isAncestorOf(d.nodes, other.id, n.id)),
+    )
+    if (top.length === 0) return null
+
+    const boxes = top.map((n) => nodeBox(n, d.nodes))
+    const minX = Math.min(...boxes.map((b) => b.left))
+    const minY = Math.min(...boxes.map((b) => b.top))
+    const maxX = Math.max(...boxes.map((b) => b.right))
+    const maxY = Math.max(...boxes.map((b) => b.bottom))
+    const origin = { x: minX - GROUP_PADDING, y: minY - GROUP_PADDING - GROUP_HEADER }
+    const size = {
+      w: maxX - minX + GROUP_PADDING * 2,
+      h: maxY - minY + GROUP_PADDING * 2 + GROUP_HEADER,
+    }
+
+    // Share a parent only when every member already lives in the same container.
+    const parents = new Set(top.map((n) => n.parentId))
+    const sharedParent = parents.size === 1 ? top[0].parentId : undefined
+    const sharedParentNode = sharedParent ? d.nodes.find((n) => n.id === sharedParent) : undefined
+    const parentAbs = sharedParentNode ? absolutePosition(sharedParentNode, d.nodes) : { x: 0, y: 0 }
+
+    const group = createNodeOfKind('group', sharedParentNode
+      ? { x: origin.x - parentAbs.x, y: origin.y - parentAbs.y }
+      : origin)
+    group.size = size
+    if (sharedParentNode) group.parentId = sharedParentNode.id
+
+    const topIds = new Set(top.map((n) => n.id))
+    const absById = new Map(top.map((n) => [n.id, absolutePosition(n, d.nodes)]))
+
+    set((s) =>
+      withHistory(s, (diagram) => {
+        const firstIndex = diagram.nodes.findIndex((n) => topIds.has(n.id))
+        const reparented = diagram.nodes.map((n) => {
+          if (!topIds.has(n.id)) return n
+          const abs = absById.get(n.id)!
+          return {
+            ...n,
+            parentId: group.id,
+            position: { x: abs.x - origin.x, y: abs.y - origin.y },
+          } as DiagramNode
+        })
+        // Parents must precede children for React Flow.
+        const insertAt = Math.max(0, firstIndex)
+        const nodes = [...reparented.slice(0, insertAt), group, ...reparented.slice(insertAt)]
+        return { ...diagram, nodes }
+      }),
+    )
+    set({ selectedNodeIds: [group.id], selectedEdgeIds: [] })
+    return group.id
+  },
+
+  ungroupSelection: () => {
+    const state = get()
+    const d = state.diagram
+    if (!d || state.selectedNodeIds.length === 0) return false
+    const selectedSet = new Set(state.selectedNodeIds)
+
+    let containerIds = d.nodes
+      .filter((n) => selectedSet.has(n.id) && isContainerKind(n.kind) && !n.locked)
+      .map((n) => n.id)
+
+    if (containerIds.length === 0) {
+      // Fall back to the single container that holds the selected children.
+      const selected = d.nodes.filter((n) => selectedSet.has(n.id))
+      const parentIds = new Set(selected.map((n) => n.parentId))
+      if (parentIds.size !== 1) return false
+      const parentId = [...parentIds][0]
+      const parent = parentId ? d.nodes.find((n) => n.id === parentId) : undefined
+      if (!parent || !isContainerKind(parent.kind) || parent.locked) return false
+      containerIds = [parent.id]
+    }
+
+    const removed = new Set(containerIds)
+    const freed: string[] = []
+    set((s) =>
+      withHistory(s, (diagram) => {
+        let nodes = diagram.nodes
+        for (const containerId of containerIds) {
+          const container = nodes.find((n) => n.id === containerId)
+          if (!container) continue
+          nodes = nodes
+            .filter((n) => n.id !== containerId)
+            .map((n) => {
+              if (n.parentId !== containerId) return n
+              if (!removed.has(n.id)) freed.push(n.id)
+              // Child position is relative to the container; the container may itself be nested.
+              return {
+                ...n,
+                parentId: container.parentId,
+                position: {
+                  x: n.position.x + container.position.x,
+                  y: n.position.y + container.position.y,
+                },
+              } as DiagramNode
+            })
+        }
+        const gone = new Set(containerIds)
+        return {
+          ...diagram,
+          nodes,
+          edges: diagram.edges.filter((e) => !gone.has(e.source) && !gone.has(e.target)),
+        }
+      }),
+    )
+    const nodeIds = new Set(get().diagram?.nodes.map((n) => n.id))
+    set({
+      selectedNodeIds: freed.filter((id) => nodeIds.has(id)),
+      selectedEdgeIds: [],
+    })
+    return true
+  },
+
   copySelection: () => {
     const state = get()
     if (!state.diagram || state.selectedNodeIds.length === 0) return false
     const selected = new Set(state.selectedNodeIds)
-    const nodes = state.diagram.nodes.filter((n) => selected.has(n.id))
+    const all = state.diagram.nodes
+    // Nodes whose container is not copied are stored with absolute coordinates.
+    const nodes = all
+      .filter((n) => selected.has(n.id))
+      .map((n) =>
+        n.parentId && !selected.has(n.parentId)
+          ? ({ ...n, parentId: undefined, position: absolutePosition(n, all) } as DiagramNode)
+          : n,
+      )
     const edges = state.diagram.edges.filter(
       (e) =>
         (selected.has(e.source) && selected.has(e.target)) ||
@@ -783,6 +1043,23 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       }
     }
 
+    set((state) =>
+      withHistory(state, (d) => ({
+        ...d,
+        nodes: [...d.nodes, ...nodes],
+        edges: [...d.edges, ...edges],
+      })),
+    )
+    set({
+      selectedNodeIds: nodes.map((n) => n.id),
+      selectedEdgeIds: edges.map((e) => e.id),
+    })
+    return true
+  },
+
+  pasteClipboardInPlace: () => {
+    if (!editorClipboard || editorClipboard.nodes.length === 0) return false
+    const { nodes, edges } = remapClipboard(editorClipboard, { x: 0, y: 0 })
     set((state) =>
       withHistory(state, (d) => ({
         ...d,
