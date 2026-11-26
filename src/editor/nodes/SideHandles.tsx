@@ -1,7 +1,8 @@
 import { Handle, Position } from '@xyflow/react'
+import { QuickAddButtons } from './QuickAddButtons'
+import { SIDE_HANDLE_IDS, type SideHandleId } from './sideIds'
 
-export const SIDE_HANDLE_IDS = ['top', 'right', 'bottom', 'left'] as const
-export type SideHandleId = (typeof SIDE_HANDLE_IDS)[number]
+export { SIDE_HANDLE_IDS, type SideHandleId } from './sideIds'
 
 const SIDE_POSITION: Record<SideHandleId, Position> = {
   top: Position.Top,
@@ -14,6 +15,8 @@ type Props = {
   /** Skip these side ids (e.g. decision branches occupy bottom). */
   omit?: SideHandleId[]
   className?: string
+  /** Hide the hover + quick-add buttons. */
+  noQuickAdd?: boolean
 }
 
 /**
@@ -21,7 +24,11 @@ type Props = {
  * ConnectionMode.Loose lets either start a connection; matching type is still
  * required for React Flow to resolve edge sourceHandle/targetHandle ids.
  */
-export function SideHandles({ omit = [], className = 'flow-handle' }: Props) {
+export function SideHandles({
+  omit = [],
+  className = 'flow-handle',
+  noQuickAdd = false,
+}: Props) {
   const skipped = new Set(omit)
   return (
     <>
@@ -43,6 +50,7 @@ export function SideHandles({ omit = [], className = 'flow-handle' }: Props) {
           isConnectable
         />,
       ])}
+      {!noQuickAdd ? <QuickAddButtons omit={omit} /> : null}
     </>
   )
 }

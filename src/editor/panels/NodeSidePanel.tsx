@@ -42,6 +42,7 @@ export function NodeSidePanel() {
   const replaceNode = useEditorStore((s) => s.replaceNode)
   const updateNode = useEditorStore((s) => s.updateNode)
   const updateNodes = useEditorStore((s) => s.updateNodes)
+  const updateEdge = useEditorStore((s) => s.updateEdge)
   const updateEdges = useEditorStore((s) => s.updateEdges)
   const removeNodes = useEditorStore((s) => s.removeNodes)
   const removeEdges = useEditorStore((s) => s.removeEdges)
@@ -118,6 +119,129 @@ export function NodeSidePanel() {
               value={labelValue === MIXED ? '' : labelValue}
               placeholder={labelValue === MIXED ? MIXED : ''}
               onChange={(e) => updateEdges(selectedEdgeIds, { label: e.target.value || undefined })}
+            />
+          </label>
+          <label className="field">
+            <span>Type</span>
+            <select
+              data-testid="edge-type"
+              value={sharedValue(selectedEdges.map((e) => e.type ?? 'elbow'))}
+              onChange={(e) =>
+                updateEdges(selectedEdgeIds, {
+                  type: e.target.value as 'elbow' | 'straight' | 'curved',
+                })
+              }
+            >
+              <option value="elbow">Elbow</option>
+              <option value="straight">Straight</option>
+              <option value="curved">Curved</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>Start marker</span>
+            <select
+              data-testid="edge-start-marker"
+              value={sharedValue(selectedEdges.map((e) => e.startMarker ?? 'none'))}
+              onChange={(e) =>
+                updateEdges(selectedEdgeIds, {
+                  startMarker: e.target.value as
+                    | 'none'
+                    | 'arrow'
+                    | 'arrowFilled'
+                    | 'circle'
+                    | 'diamond',
+                })
+              }
+            >
+              <option value="none">None</option>
+              <option value="arrow">Arrow</option>
+              <option value="arrowFilled">Filled arrow</option>
+              <option value="circle">Circle</option>
+              <option value="diamond">Diamond</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>End marker</span>
+            <select
+              data-testid="edge-end-marker"
+              value={sharedValue(selectedEdges.map((e) => e.endMarker ?? 'arrowFilled'))}
+              onChange={(e) =>
+                updateEdges(selectedEdgeIds, {
+                  endMarker: e.target.value as
+                    | 'none'
+                    | 'arrow'
+                    | 'arrowFilled'
+                    | 'circle'
+                    | 'diamond',
+                })
+              }
+            >
+              <option value="none">None</option>
+              <option value="arrow">Arrow</option>
+              <option value="arrowFilled">Filled arrow</option>
+              <option value="circle">Circle</option>
+              <option value="diamond">Diamond</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>Stroke width</span>
+            <select
+              data-testid="edge-stroke-width"
+              value={String(
+                sharedValue(selectedEdges.map((e) => String(e.style?.width ?? 2))),
+              )}
+              onChange={(e) => {
+                const width = Number(e.target.value)
+                for (const edge of selectedEdges) {
+                  updateEdge(edge.id, {
+                    style: { ...(edge.style ?? {}), width },
+                  })
+                }
+              }}
+            >
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>Stroke</span>
+            <select
+              data-testid="edge-dash"
+              value={sharedValue(selectedEdges.map((e) => e.style?.dash ?? 'solid'))}
+              onChange={(e) => {
+                const dash = e.target.value as 'solid' | 'dashed'
+                for (const edge of selectedEdges) {
+                  updateEdge(edge.id, {
+                    style: { ...(edge.style ?? {}), dash },
+                  })
+                }
+              }}
+            >
+              <option value="solid">Solid</option>
+              <option value="dashed">Dashed</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>Colour</span>
+            <input
+              data-testid="edge-color"
+              type="color"
+              value={
+                resolveColor(
+                  selectedEdges[0]?.style?.color ?? selectedEdges[0]?.color,
+                  'gray',
+                ).solid
+              }
+              onChange={(e) => {
+                const color = e.target.value
+                for (const edge of selectedEdges) {
+                  updateEdge(edge.id, {
+                    style: { ...(edge.style ?? {}), color },
+                  })
+                }
+              }}
             />
           </label>
           <button

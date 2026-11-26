@@ -1,7 +1,9 @@
 import type { Edge, Node } from '@xyflow/react'
 import { isContainerKind, type DiagramEdge, type DiagramNode, type NodeKind } from '../schema'
 import { DEFAULT_NODE_HEIGHT, DEFAULT_NODE_WIDTH } from './alignment'
+import { resolveColor } from './colors'
 import { decisionSizeForBranches } from './decisionLayout'
+import { toReactFlowMarker } from './edges/edgeMarkers'
 import { effectiveZIndex } from './zOrder'
 
 export type FlowNodeData = {
@@ -103,6 +105,8 @@ export function toFlowNode(
 }
 
 export function toFlowEdge(edge: DiagramEdge, selected: boolean): FlowEdge {
+  const stroke = resolveColor(edge.style?.color ?? edge.color, 'gray').solid
+  const color = stroke === '#98a2b3' ? '#8b8d98' : stroke
   return {
     id: edge.id,
     type: 'flow',
@@ -113,6 +117,9 @@ export function toFlowEdge(edge: DiagramEdge, selected: boolean): FlowEdge {
     targetHandle: edge.targetHandle ?? 'top',
     label: edge.label,
     selected,
+    reconnectable: true,
+    markerStart: toReactFlowMarker(edge.startMarker, color, 'none'),
+    markerEnd: toReactFlowMarker(edge.endMarker, color, 'arrowFilled'),
     data: { diagramEdge: edge },
   }
 }
