@@ -457,7 +457,7 @@ export function NodeSidePanel() {
               placeholder={descShared === MIXED ? MIXED : ''}
               onChange={(e) => setFieldOnAll('description', e.target.value || undefined)}
             />
-            <p className="field-help">Shown under the title on the canvas, two lines max.</p>
+            <p className="field-help">Shown under the title on the canvas. Long text can expand inline.</p>
           </label>
           {!multi && node.kind === 'step' ? (
             <label className="field">
@@ -535,6 +535,7 @@ function KindDetails({
         </section>
       )
     case 'decision':
+    case 'switch':
       return (
         <DecisionBranchesEditor
           node={node}
@@ -683,18 +684,20 @@ function KindDetails({
     }
     case 'shape':
       return (
-        <section className="side-section">
+        <section className="side-section" data-testid="shape-properties">
           <h3 className="side-section-label">Shape</h3>
           <label className="field">
-            <span>Kind</span>
+            <span>Swap shape</span>
             <select
               value={node.data.shape}
+              data-testid="swap-shape"
+              aria-label="Swap shape"
               onChange={(e) =>
                 replaceNode({
                   ...node,
                   data: {
                     ...node.data,
-                    shape: e.target.value as 'rect' | 'rounded' | 'diamond' | 'ellipse',
+                    shape: e.target.value as typeof node.data.shape,
                   },
                 })
               }
@@ -703,11 +706,373 @@ function KindDetails({
               <option value="rounded">Rounded</option>
               <option value="diamond">Diamond</option>
               <option value="ellipse">Ellipse</option>
+              <option value="parallelogram">Parallelogram</option>
+              <option value="cylinder">Cylinder</option>
+              <option value="document">Document</option>
+              <option value="hexagon">Hexagon</option>
+              <option value="triangle">Triangle</option>
             </select>
+          </label>
+          <label className="field">
+            <span>Text</span>
+            <input
+              value={node.data.text ?? ''}
+              onChange={(e) =>
+                replaceNode({
+                  ...node,
+                  data: { ...node.data, text: e.target.value },
+                  label: e.target.value || node.label,
+                })
+              }
+            />
+          </label>
+          <label className="field">
+            <span>Fill</span>
+            <input
+              type="color"
+              value={node.style?.fill?.startsWith('#') ? node.style.fill : '#f1f5f9'}
+              onChange={(e) =>
+                replaceNode({
+                  ...node,
+                  style: { ...node.style, fill: e.target.value },
+                })
+              }
+            />
+          </label>
+          <label className="field">
+            <span>Stroke</span>
+            <input
+              type="color"
+              value={node.style?.stroke?.startsWith('#') ? node.style.stroke : '#64748b'}
+              onChange={(e) =>
+                replaceNode({
+                  ...node,
+                  style: { ...node.style, stroke: e.target.value },
+                })
+              }
+            />
+          </label>
+          <label className="field">
+            <span>Stroke width</span>
+            <input
+              type="number"
+              min={1}
+              max={8}
+              step={0.5}
+              value={node.style?.strokeWidth ?? 1.5}
+              onChange={(e) =>
+                replaceNode({
+                  ...node,
+                  style: { ...node.style, strokeWidth: Number(e.target.value) || 1.5 },
+                })
+              }
+            />
           </label>
         </section>
       )
+    case 'loop':
+    case 'delay':
+    case 'subflow':
+    case 'error':
+    case 'database':
+    case 'inputForm':
+    case 'output':
+    case 'score':
+    case 'lookup':
+    case 'actor':
+    case 'approval':
+    case 'notification':
+    case 'timer':
+    case 'event':
+    case 'callout':
+    case 'image':
+    case 'link':
+    case 'parallelSplit':
+    case 'parallelJoin':
+      return <KindDetailsSection node={node} replaceNode={replaceNode} />
     default:
       return null
   }
+}
+
+function KindDetailsSection({
+  node,
+  replaceNode,
+}: {
+  node: DiagramNode
+  replaceNode: (node: DiagramNode) => void
+}) {
+  const title = KIND_META[node.kind]?.label ?? 'Details'
+  return (
+    <section className="side-section" data-testid={`details-${node.kind}`}>
+      <h3 className="side-section-label">{title}</h3>
+      {node.kind === 'loop' ? (
+        <label className="field">
+          <span>Collection</span>
+          <input
+            value={node.data?.collection ?? ''}
+            onChange={(e) =>
+              replaceNode({ ...node, data: { ...node.data, collection: e.target.value } })
+            }
+          />
+        </label>
+      ) : null}
+      {node.kind === 'delay' ? (
+        <label className="field">
+          <span>Duration (ms)</span>
+          <input
+            type="number"
+            value={node.data?.durationMs ?? 0}
+            onChange={(e) =>
+              replaceNode({
+                ...node,
+                data: { ...node.data, durationMs: Number(e.target.value) || 0 },
+              })
+            }
+          />
+        </label>
+      ) : null}
+      {node.kind === 'subflow' ? (
+        <>
+          <label className="field">
+            <span>Diagram id</span>
+            <input
+              value={node.data?.diagramId ?? ''}
+              onChange={(e) =>
+                replaceNode({ ...node, data: { ...node.data, diagramId: e.target.value } })
+              }
+            />
+          </label>
+          <label className="field">
+            <span>Diagram title</span>
+            <input
+              value={node.data?.diagramTitle ?? ''}
+              onChange={(e) =>
+                replaceNode({ ...node, data: { ...node.data, diagramTitle: e.target.value } })
+              }
+            />
+          </label>
+        </>
+      ) : null}
+      {node.kind === 'error' ? (
+        <>
+          <label className="field">
+            <span>Code</span>
+            <input
+              value={node.data?.code ?? ''}
+              onChange={(e) =>
+                replaceNode({ ...node, data: { ...node.data, code: e.target.value } })
+              }
+            />
+          </label>
+          <label className="field">
+            <span>Message</span>
+            <input
+              value={node.data?.message ?? ''}
+              onChange={(e) =>
+                replaceNode({ ...node, data: { ...node.data, message: e.target.value } })
+              }
+            />
+          </label>
+        </>
+      ) : null}
+      {node.kind === 'database' ? (
+        <>
+          <label className="field">
+            <span>Operation</span>
+            <select
+              value={node.data?.operation ?? 'query'}
+              onChange={(e) =>
+                replaceNode({
+                  ...node,
+                  data: {
+                    ...node.data,
+                    operation: e.target.value as 'read' | 'write' | 'query' | 'upsert',
+                  },
+                })
+              }
+            >
+              <option value="read">Read</option>
+              <option value="write">Write</option>
+              <option value="query">Query</option>
+              <option value="upsert">Upsert</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>Collection</span>
+            <input
+              value={node.data?.collection ?? ''}
+              onChange={(e) =>
+                replaceNode({ ...node, data: { ...node.data, collection: e.target.value } })
+              }
+            />
+          </label>
+        </>
+      ) : null}
+      {node.kind === 'notification' ? (
+        <label className="field">
+          <span>Channel</span>
+          <select
+            value={node.data?.channel ?? 'email'}
+            onChange={(e) =>
+              replaceNode({
+                ...node,
+                data: {
+                  ...node.data,
+                  channel: e.target.value as 'email' | 'sms' | 'push',
+                },
+              })
+            }
+          >
+            <option value="email">Email</option>
+            <option value="sms">SMS</option>
+            <option value="push">Push</option>
+          </select>
+        </label>
+      ) : null}
+      {node.kind === 'image' ? (
+        <label className="field">
+          <span>Image URL</span>
+          <input
+            value={node.data?.url ?? ''}
+            onChange={(e) =>
+              replaceNode({ ...node, data: { ...node.data, url: e.target.value } })
+            }
+          />
+        </label>
+      ) : null}
+      {node.kind === 'link' ? (
+        <label className="field">
+          <span>URL</span>
+          <input
+            value={node.data?.href ?? ''}
+            onChange={(e) =>
+              replaceNode({ ...node, data: { ...node.data, href: e.target.value } })
+            }
+          />
+        </label>
+      ) : null}
+      {node.kind === 'callout' ? (
+        <label className="field">
+          <span>Text</span>
+          <textarea
+            value={node.data?.text ?? ''}
+            rows={3}
+            onChange={(e) =>
+              replaceNode({ ...node, data: { ...node.data, text: e.target.value } })
+            }
+          />
+        </label>
+      ) : null}
+      {node.kind === 'score' ? (
+        <>
+          <label className="field">
+            <span>Model</span>
+            <input
+              value={node.data?.model ?? ''}
+              onChange={(e) =>
+                replaceNode({ ...node, data: { ...node.data, model: e.target.value } })
+              }
+            />
+          </label>
+          <label className="field">
+            <span>Threshold</span>
+            <input
+              type="number"
+              value={node.data?.threshold ?? 0}
+              onChange={(e) =>
+                replaceNode({
+                  ...node,
+                  data: { ...node.data, threshold: Number(e.target.value) || 0 },
+                })
+              }
+            />
+          </label>
+        </>
+      ) : null}
+      {node.kind === 'lookup' ? (
+        <>
+          <label className="field">
+            <span>Table</span>
+            <input
+              value={node.data?.table ?? ''}
+              onChange={(e) =>
+                replaceNode({ ...node, data: { ...node.data, table: e.target.value } })
+              }
+            />
+          </label>
+          <label className="field">
+            <span>Key field</span>
+            <input
+              value={node.data?.keyField ?? ''}
+              onChange={(e) =>
+                replaceNode({ ...node, data: { ...node.data, keyField: e.target.value } })
+              }
+            />
+          </label>
+        </>
+      ) : null}
+      {node.kind === 'actor' ? (
+        <label className="field">
+          <span>Role</span>
+          <input
+            value={node.data?.role ?? ''}
+            onChange={(e) =>
+              replaceNode({ ...node, data: { ...node.data, role: e.target.value } })
+            }
+          />
+        </label>
+      ) : null}
+      {node.kind === 'timer' ? (
+        <label className="field">
+          <span>Cron</span>
+          <input
+            value={node.data?.cron ?? ''}
+            onChange={(e) =>
+              replaceNode({ ...node, data: { ...node.data, cron: e.target.value } })
+            }
+          />
+        </label>
+      ) : null}
+      {node.kind === 'event' ? (
+        <label className="field">
+          <span>Event name</span>
+          <input
+            value={node.data?.eventName ?? ''}
+            onChange={(e) =>
+              replaceNode({ ...node, data: { ...node.data, eventName: e.target.value } })
+            }
+          />
+        </label>
+      ) : null}
+      {node.kind === 'output' ? (
+        <label className="field">
+          <span>Format</span>
+          <input
+            value={node.data?.format ?? ''}
+            onChange={(e) =>
+              replaceNode({ ...node, data: { ...node.data, format: e.target.value } })
+            }
+          />
+        </label>
+      ) : null}
+      {node.kind === 'parallelJoin' ? (
+        <label className="field">
+          <span>Wait for</span>
+          <select
+            value={node.data?.waitFor ?? 'all'}
+            onChange={(e) =>
+              replaceNode({
+                ...node,
+                data: { ...node.data, waitFor: e.target.value as 'all' | 'any' },
+              })
+            }
+          >
+            <option value="all">All</option>
+            <option value="any">Any</option>
+          </select>
+        </label>
+      ) : null}
+    </section>
+  )
 }

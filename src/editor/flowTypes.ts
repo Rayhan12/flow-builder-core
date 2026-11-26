@@ -37,8 +37,17 @@ function defaultSizeFor(node: DiagramNode): { w: number; h: number } {
   if (node.kind === 'sticky') {
     return { w: 192, h: 160 }
   }
+  if (node.kind === 'shape') {
+    return { w: 160, h: 96 }
+  }
+  if (node.kind === 'divider') {
+    return { w: 240, h: 24 }
+  }
   if (node.kind === 'start' || node.kind === 'end') {
     return { w: 176, h: 64 }
+  }
+  if (node.kind === 'switch') {
+    return decisionSizeForBranches(node.data.branches.length)
   }
   return { w: DEFAULT_NODE_WIDTH, h: DEFAULT_NODE_HEIGHT }
 }
@@ -83,7 +92,10 @@ export function toFlowNode(
           width: collapsed ? 280 : width,
           height: collapsed ? 44 : height,
         }
-      : node.kind === 'decision' || node.kind === 'sticky'
+      : node.kind === 'decision' ||
+          node.kind === 'switch' ||
+          node.kind === 'sticky' ||
+          node.kind === 'shape'
         ? { width, height }
         : undefined,
     data: { diagramNode: node },
