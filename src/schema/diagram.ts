@@ -122,6 +122,8 @@ const NodeBaseSchema = z.object({
   hidden: z.boolean().optional(),
   zIndex: z.number().int().optional(),
   style: NodeStyleSchema.optional(),
+  /** Set when the user drags the node; incremental layout prefers not to move it. */
+  manuallyPositioned: z.boolean().optional(),
 })
 
 const BranchesDataSchema = z.object({
@@ -419,6 +421,10 @@ export const DiagramDocSchema = z
     groups: z.array(z.unknown()).default([]),
     viewport: ViewportSchema.default({ x: 0, y: 0, zoom: 1 }),
     theme: DiagramThemeSchema.default({ palette: 'default' }),
+    /** Set by MCP/agent after create or edit; editor clears after auto-layout. */
+    layoutPending: z.boolean().optional(),
+    /** Set by MCP/agent; editor zooms to fit on open then clears. */
+    fitPending: z.boolean().optional(),
   })
   .superRefine((doc, ctx) => {
     const nodeIds = new Set<string>()

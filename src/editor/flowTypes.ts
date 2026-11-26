@@ -1,8 +1,7 @@
 import type { Edge, Node } from '@xyflow/react'
+import { defaultNodeSize as sharedDefaultNodeSize } from '../../shared/layout/index.ts'
 import { isContainerKind, type DiagramEdge, type DiagramNode, type NodeKind } from '../schema'
-import { DEFAULT_NODE_HEIGHT, DEFAULT_NODE_WIDTH } from './alignment'
 import { resolveColor } from './colors'
-import { decisionSizeForBranches } from './decisionLayout'
 import { toReactFlowMarker } from './edges/edgeMarkers'
 import { effectiveZIndex } from './zOrder'
 
@@ -25,39 +24,7 @@ export function absolutePosition(
 }
 
 export function defaultNodeSize(node: DiagramNode): { w: number; h: number } {
-  if (isContainerKind(node.kind)) {
-    const collapsed =
-      (node.kind === 'group' || node.kind === 'section') && node.data.collapsed === true
-    return {
-      w: collapsed ? 280 : node.kind === 'section' ? 480 : 360,
-      h: collapsed ? 44 : node.kind === 'section' ? 320 : 240,
-    }
-  }
-  if (node.kind === 'decision') {
-    return decisionSizeForBranches(
-      node.data.branches.length,
-      node.data.branches.map((b) => b.label),
-    )
-  }
-  if (node.kind === 'sticky') {
-    return { w: 192, h: 160 }
-  }
-  if (node.kind === 'shape') {
-    return { w: 160, h: 96 }
-  }
-  if (node.kind === 'divider') {
-    return { w: 240, h: 24 }
-  }
-  if (node.kind === 'start' || node.kind === 'end') {
-    return { w: 176, h: 64 }
-  }
-  if (node.kind === 'switch') {
-    return decisionSizeForBranches(
-      node.data.branches.length,
-      node.data.branches.map((b) => b.label),
-    )
-  }
-  return { w: DEFAULT_NODE_WIDTH, h: DEFAULT_NODE_HEIGHT }
+  return sharedDefaultNodeSize(node)
 }
 
 export function toFlowNode(
