@@ -155,7 +155,9 @@ export function Canvas({
     x: number
     y: number
     nodeIds: string[]
+    edgeIds: string[]
   } | null>(null)
+  const altDragDupRef = useRef(false)
   const dragDepthRef = useRef(0)
   const diagramNodes = diagram?.nodes
   const diagramEdges = diagram?.edges
@@ -163,6 +165,14 @@ export function Canvas({
   const toggleHidden = useEditorStore((s) => s.toggleHidden)
   const toggleLocked = useEditorStore((s) => s.toggleLocked)
   const showAllHidden = useEditorStore((s) => s.showAllHidden)
+  const copySelection = useEditorStore((s) => s.copySelection)
+  const pasteClipboard = useEditorStore((s) => s.pasteClipboard)
+  const pasteClipboardInPlace = useEditorStore((s) => s.pasteClipboardInPlace)
+  const duplicateSelection = useEditorStore((s) => s.duplicateSelection)
+  const groupSelection = useEditorStore((s) => s.groupSelection)
+  const ungroupSelection = useEditorStore((s) => s.ungroupSelection)
+  const addConnectedNode = useEditorStore((s) => s.addConnectedNode)
+  const replaceNode = useEditorStore((s) => s.replaceNode)
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -416,6 +426,11 @@ export function Canvas({
       // Backup path: some controlled updates can skip onSelectionChange.
       // Shift-click is handled by React Flow multi-select; leave that alone.
       if (event.shiftKey) return
+      // Cmd/Ctrl-click deep-selects a nested node without selecting its group.
+      if (event.metaKey || event.ctrlKey) {
+        setSelection([node.id], [])
+        return
+      }
       setSelection([node.id], [])
     },
     [setSelection],
@@ -438,18 +453,56 @@ export function Canvas({
       if (!state.selectedNodeIds.includes(node.id)) {
         setSelection(ids, [])
       }
-      setContextMenu({ x: event.clientX, y: event.clientY, nodeIds: ids })
+      setContextMenu({
+        x: event.clientX,
+        y: event.clientY,
+        nodeIds: ids,
+        edgeIds: [],
+      })
     },
     [setSelection],
   )
+
+  const onPaneContextMenu = useCallback((event: ReactMouseEvent | MouseEvent) => {
+    event.preventDefault()
+    setContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+      nodeIds: [],
+      edgeIds: [],
+    })
+  }, [])
 
   const onPaneClick = useCallback(() => {
     setContextMenu(null)
   }, [])
 
+  const onNodeDragStart = useCallback(
+    (event: ReactMouseEvent | MouseEvent | TouchEvent, node: FlowNode) => {
+      altDragDupRef.current = false
+      const altKey = 'altKey' in event ? event.altKey : false
+      if (!altKey) return
+      const state = useEditorStore.getState()
+      const ids = state.selectedNodeIds.includes(node.id)
+        ? state.selectedNodeIds
+        : [node.id]
+      if (!state.selectedNodeIds.includes(node.id)) {
+        setSelection(ids, [])
+      }
+      // Snapshot into clipboard at drag start so paste-in-place leaves copies behind.
+      copySelection()
+      altDragDupRef.current = true
+    },
+    [copySelection, setSelection],
+  )
+
   const onNodeDragStop = useCallback(
     (_: unknown, node: FlowNode) => {
       clearGuides()
+      if (altDragDupRef.current) {
+        pasteClipboardInPlace()
+        altDragDupRef.current = false
+      }
       const d = useEditorStore.getState().diagram
       if (!d) return
       const diagramNode = d.nodes.find((n) => n.id === node.id)
@@ -468,7 +521,7 @@ export function Canvas({
       if (nextParentId === currentParentId) return
       setNodeParent(node.id, nextParentId, world)
     },
-    [setNodeParent, clearGuides],
+    [setNodeParent, clearGuides, pasteClipboardInPlace],
   )
 
   const onViewportChange = useCallback(
@@ -565,9 +618,11 @@ export function Canvas({
         onNodeClick={onNodeClick}
         onEdgeClick={onEdgeClick}
         onNodeContextMenu={onNodeContextMenu}
+        onPaneContextMenu={onPaneContextMenu}
         onNodeMouseEnter={onNodeMouseEnter}
         onNodeMouseLeave={onNodeMouseLeave}
         onPaneClick={onPaneClick}
+        onNodeDragStart={onNodeDragStart}
         onNodeDragStop={onNodeDragStop}
         onViewportChange={onViewportChange}
         onPointerMove={(event) => {
@@ -689,72 +744,176 @@ export function Canvas({
           style={{ left: contextMenu.x, top: contextMenu.y }}
           data-testid="canvas-context-menu"
         >
-          <button
-            type="button"
-            role="menuitem"
-            className="canvas-context-item"
-            onClick={() => {
-              reorderZ(contextMenu.nodeIds, 'forward')
-              setContextMenu(null)
-            }}
-          >
-            Bring forward
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="canvas-context-item"
-            onClick={() => {
-              reorderZ(contextMenu.nodeIds, 'backward')
-              setContextMenu(null)
-            }}
-          >
-            Send backward
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="canvas-context-item"
-            onClick={() => {
-              reorderZ(contextMenu.nodeIds, 'front')
-              setContextMenu(null)
-            }}
-          >
-            Bring to front
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="canvas-context-item"
-            onClick={() => {
-              reorderZ(contextMenu.nodeIds, 'back')
-              setContextMenu(null)
-            }}
-          >
-            Send to back
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="canvas-context-item"
-            onClick={() => {
-              toggleHidden(contextMenu.nodeIds)
-              setContextMenu(null)
-            }}
-          >
-            Hide / show
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            className="canvas-context-item"
-            onClick={() => {
-              toggleLocked(contextMenu.nodeIds)
-              setContextMenu(null)
-            }}
-          >
-            Lock / unlock
-          </button>
+          {contextMenu.nodeIds.length > 0 ? (
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                className="canvas-context-item"
+                onClick={() => {
+                  copySelection()
+                  setContextMenu(null)
+                }}
+              >
+                Copy
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="canvas-context-item"
+                onClick={() => {
+                  duplicateSelection()
+                  setContextMenu(null)
+                }}
+              >
+                Duplicate
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="canvas-context-item"
+                onClick={() => {
+                  const node = diagram?.nodes.find((n) => n.id === contextMenu.nodeIds[0])
+                  if (!node) return
+                  const next = window.prompt(
+                    'Label',
+                    node.kind === 'group' || node.kind === 'section'
+                      ? node.data.label
+                      : node.label,
+                  )
+                  if (next == null) return
+                  if (node.kind === 'group' || node.kind === 'section') {
+                    replaceNode({
+                      ...node,
+                      label: next,
+                      data: { ...node.data, label: next },
+                    })
+                  } else {
+                    replaceNode({ ...node, label: next })
+                  }
+                  setContextMenu(null)
+                }}
+              >
+                Edit label
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="canvas-context-item"
+                onClick={() => {
+                  groupSelection()
+                  setContextMenu(null)
+                }}
+              >
+                Group
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="canvas-context-item"
+                onClick={() => {
+                  ungroupSelection()
+                  setContextMenu(null)
+                }}
+              >
+                Ungroup
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="canvas-context-item"
+                onClick={() => {
+                  addConnectedNode(contextMenu.nodeIds[0], 'right')
+                  setContextMenu(null)
+                }}
+              >
+                Add connected node
+              </button>
+              <hr className="canvas-context-sep" />
+              <button
+                type="button"
+                role="menuitem"
+                className="canvas-context-item"
+                onClick={() => {
+                  reorderZ(contextMenu.nodeIds, 'forward')
+                  setContextMenu(null)
+                }}
+              >
+                Bring forward
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="canvas-context-item"
+                onClick={() => {
+                  reorderZ(contextMenu.nodeIds, 'backward')
+                  setContextMenu(null)
+                }}
+              >
+                Send backward
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="canvas-context-item"
+                onClick={() => {
+                  if (contextMenu.nodeIds.length >= 2) alignSelection('left')
+                  setContextMenu(null)
+                }}
+              >
+                Align left
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="canvas-context-item"
+                onClick={() => {
+                  toggleHidden(contextMenu.nodeIds)
+                  setContextMenu(null)
+                }}
+              >
+                Hide / show
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="canvas-context-item"
+                onClick={() => {
+                  toggleLocked(contextMenu.nodeIds)
+                  setContextMenu(null)
+                }}
+              >
+                Lock / unlock
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="canvas-context-item is-danger"
+                onClick={() => {
+                  removeNodes(contextMenu.nodeIds)
+                  setContextMenu(null)
+                }}
+              >
+                Delete
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              role="menuitem"
+              className="canvas-context-item"
+              onClick={() => {
+                const point = screenToFlowPosition({
+                  x: contextMenu.x,
+                  y: contextMenu.y,
+                })
+                pasteClipboard(point)
+                setContextMenu(null)
+              }}
+            >
+              Paste
+            </button>
+          )}
         </div>
       ) : null}
     </div>

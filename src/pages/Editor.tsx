@@ -47,7 +47,7 @@ import {
 } from '../editor/importExport'
 import { isEditableKeyboardTarget } from '../editor/keyboard'
 import { autoLayoutDiagram, type LayoutDirection } from '../editor/layout'
-import { NodeSearch, type NodeSearchResult } from '../editor/NodeSearch'
+import { CommandPalette, type CommandPaletteResult } from '../editor/CommandPalette'
 import { NodePalette } from '../editor/palette/NodePalette'
 import { LayersPanel } from '../editor/panels/LayersPanel'
 import { NodeSidePanel } from '../editor/panels/NodeSidePanel'
@@ -132,6 +132,7 @@ function EditorInner() {
   const replaceDiagramContent = useEditorStore((s) => s.replaceDiagramContent)
   const copySelection = useEditorStore((s) => s.copySelection)
   const pasteClipboard = useEditorStore((s) => s.pasteClipboard)
+  const pasteClipboardInPlace = useEditorStore((s) => s.pasteClipboardInPlace)
   const duplicateSelection = useEditorStore((s) => s.duplicateSelection)
   const clearSelection = useEditorStore((s) => s.clearSelection)
   const setSelection = useEditorStore((s) => s.setSelection)
@@ -142,6 +143,12 @@ function EditorInner() {
   const toggleLocked = useEditorStore((s) => s.toggleLocked)
   const showAllHidden = useEditorStore((s) => s.showAllHidden)
   const reorderZ = useEditorStore((s) => s.reorderZ)
+  const groupSelection = useEditorStore((s) => s.groupSelection)
+  const ungroupSelection = useEditorStore((s) => s.ungroupSelection)
+  const alignSelection = useEditorStore((s) => s.alignSelection)
+  const distributeSelection = useEditorStore((s) => s.distributeSelection)
+  const tidySelection = useEditorStore((s) => s.tidySelection)
+  const removeNodes = useEditorStore((s) => s.removeNodes)
 
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -151,7 +158,7 @@ function EditorInner() {
   const [ioMenuOpen, setIoMenuOpen] = useState(false)
   const [ioError, setIoError] = useState<string | null>(null)
   const [assistantOpen, setAssistantOpen] = useState(false)
-  const [nodeSearchOpen, setNodeSearchOpen] = useState(false)
+  const [commandOpen, setCommandOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [leftTab, setLeftTab] = useState<'assets' | 'layers'>('assets')
   const [gridMode, setGridMode] = useState<GridMode>('dots')
@@ -279,8 +286,8 @@ function EditorInner() {
       const typing = isEditableKeyboardTarget(e.target)
 
       if (key === 'escape') {
-        if (nodeSearchOpen) {
-          setNodeSearchOpen(false)
+        if (commandOpen) {
+          setCommandOpen(false)
           return
         }
         if (shortcutsOpen) {
@@ -295,13 +302,13 @@ function EditorInner() {
         return
       }
 
-      if (meta && key === 'k') {
+      if (meta && (key === 'k' || key === '/')) {
         e.preventDefault()
-        setNodeSearchOpen(true)
+        setCommandOpen(true)
         return
       }
 
-      if (meta && key === '/') {
+      if (!typing && e.shiftKey && !meta && !e.altKey && (e.key === '?' || e.code === 'Slash')) {
         e.preventDefault()
         setShortcutsOpen(true)
         return
@@ -374,11 +381,19 @@ function EditorInner() {
         copySelection()
       } else if (key === 'v' && !typing) {
         e.preventDefault()
-        const cursor = getLastFlowPoint()
-        pasteClipboard(cursor ?? undefined)
+        if (e.shiftKey) {
+          pasteClipboardInPlace()
+        } else {
+          const cursor = getLastFlowPoint()
+          pasteClipboard(cursor ?? undefined)
+        }
       } else if (key === 'd' && !typing) {
         e.preventDefault()
         duplicateSelection()
+      } else if (key === 'g' && !typing) {
+        e.preventDefault()
+        if (e.shiftKey) ungroupSelection()
+        else groupSelection()
       } else if (key === 'h' && e.shiftKey && !typing) {
         e.preventDefault()
         if (selectedNodeIds.length) toggleHidden(selectedNodeIds)
@@ -406,11 +421,14 @@ function EditorInner() {
     persist,
     copySelection,
     pasteClipboard,
+    pasteClipboardInPlace,
     duplicateSelection,
+    groupSelection,
+    ungroupSelection,
     clearSelection,
     selectAll,
     nudgeSelection,
-    nodeSearchOpen,
+    commandOpen,
     shortcutsOpen,
     assistantOpen,
     selectedNodeIds,
@@ -522,9 +540,35 @@ function EditorInner() {
     setEditingTitle(false)
   }
 
-  const onNodeSearchSelect = useCallback(
-    (result: NodeSearchResult) => {
-      setNodeSearchOpen(false)
+  const commandActions = useMemo(
+    () => [
+      { id: 'undo', label: 'Undo', hint: 'Edit', keywords: 'history' },
+      { id: 'redo', label: 'Redo', hint: 'Edit', keywords: 'history' },
+      { id: 'group', label: 'Group selection', hint: 'Arrange', keywords: 'cmd g' },
+      { id: 'ungroup', label: 'Ungroup', hint: 'Arrange', keywords: 'cmd shift g' },
+      { id: 'duplicate', label: 'Duplicate', hint: 'Edit', keywords: 'cmd d' },
+      { id: 'hide', label: 'Hide / show', hint: 'Layer', keywords: 'visibility' },
+      { id: 'lock', label: 'Lock / unlock', hint: 'Layer' },
+      { id: 'align-left', label: 'Align left', hint: 'Arrange' },
+      { id: 'align-center', label: 'Align centre', hint: 'Arrange' },
+      { id: 'align-right', label: 'Align right', hint: 'Arrange' },
+      { id: 'align-top', label: 'Align top', hint: 'Arrange' },
+      { id: 'align-middle', label: 'Align middle', hint: 'Arrange' },
+      { id: 'align-bottom', label: 'Align bottom', hint: 'Arrange' },
+      { id: 'distribute-h', label: 'Distribute horizontally', hint: 'Arrange' },
+      { id: 'distribute-v', label: 'Distribute vertically', hint: 'Arrange' },
+      { id: 'tidy', label: 'Tidy up', hint: 'Arrange' },
+      { id: 'select-all', label: 'Select all', hint: 'Selection' },
+      { id: 'delete', label: 'Delete selection', hint: 'Edit', keywords: 'remove' },
+      { id: 'shortcuts', label: 'Keyboard shortcuts', hint: 'Help', keywords: 'shift ?' },
+      { id: 'fit', label: 'Zoom to fit', hint: 'View' },
+    ],
+    [],
+  )
+
+  const onCommandSelect = useCallback(
+    (result: CommandPaletteResult) => {
+      setCommandOpen(false)
       if (result.type === 'add') {
         const cursor = getLastFlowPoint()
         if (cursor) {
@@ -541,12 +585,96 @@ function EditorInner() {
         addNode(result.kind, { x: 120 + (offset % 5) * 40, y: 80 + (offset % 5) * 40 })
         return
       }
-      setSelection([result.nodeId], [])
-      requestAnimationFrame(() =>
-        fitView({ padding: 0.35, duration: 200, nodes: [{ id: result.nodeId }] }),
-      )
+      if (result.type === 'focus') {
+        setSelection([result.nodeId], [])
+        requestAnimationFrame(() =>
+          fitView({ padding: 0.35, duration: 200, nodes: [{ id: result.nodeId }] }),
+        )
+        return
+      }
+      switch (result.actionId) {
+        case 'undo':
+          undo()
+          break
+        case 'redo':
+          redo()
+          break
+        case 'group':
+          groupSelection()
+          break
+        case 'ungroup':
+          ungroupSelection()
+          break
+        case 'duplicate':
+          duplicateSelection()
+          break
+        case 'hide':
+          if (selectedNodeIds.length) toggleHidden(selectedNodeIds)
+          break
+        case 'lock':
+          if (selectedNodeIds.length) toggleLocked(selectedNodeIds)
+          break
+        case 'align-left':
+          alignSelection('left')
+          break
+        case 'align-center':
+          alignSelection('center')
+          break
+        case 'align-right':
+          alignSelection('right')
+          break
+        case 'align-top':
+          alignSelection('top')
+          break
+        case 'align-middle':
+          alignSelection('middle')
+          break
+        case 'align-bottom':
+          alignSelection('bottom')
+          break
+        case 'distribute-h':
+          distributeSelection('horizontal')
+          break
+        case 'distribute-v':
+          distributeSelection('vertical')
+          break
+        case 'tidy':
+          tidySelection()
+          break
+        case 'select-all':
+          selectAll()
+          break
+        case 'delete':
+          if (selectedNodeIds.length) removeNodes(selectedNodeIds)
+          break
+        case 'shortcuts':
+          setShortcutsOpen(true)
+          break
+        case 'fit':
+          void fitView({ padding: 0.2, duration: 200 })
+          break
+        default:
+          break
+      }
     },
-    [addNode, fitView, setSelection],
+    [
+      addNode,
+      fitView,
+      setSelection,
+      undo,
+      redo,
+      groupSelection,
+      ungroupSelection,
+      duplicateSelection,
+      selectedNodeIds,
+      toggleHidden,
+      toggleLocked,
+      alignSelection,
+      distributeSelection,
+      tidySelection,
+      selectAll,
+      removeNodes,
+    ],
   )
 
   if (loading) {
@@ -718,8 +846,8 @@ function EditorInner() {
               type="button"
               className="btn btn-ghost btn-icon"
               aria-label="Search nodes"
-              title="Search nodes (Ctrl/Cmd+K)"
-              onClick={() => setNodeSearchOpen(true)}
+              title="Quick actions (Ctrl/Cmd+K)"
+              onClick={() => setCommandOpen(true)}
             >
               <Search size={16} />
             </button>
@@ -727,7 +855,8 @@ function EditorInner() {
               type="button"
               className="btn btn-ghost btn-icon"
               aria-label="Keyboard shortcuts"
-              title="Keyboard shortcuts (Ctrl/Cmd+/)"
+              title="Keyboard shortcuts (Shift+?)"
+              data-testid="shortcuts-button"
               onClick={() => setShortcutsOpen(true)}
             >
               <Keyboard size={16} />
@@ -851,7 +980,7 @@ function EditorInner() {
             <button
               type="button"
               className="btn btn-primary"
-              onClick={() => setNodeSearchOpen(true)}
+              onClick={() => setCommandOpen(true)}
             >
               Add a node
             </button>
@@ -869,17 +998,19 @@ function EditorInner() {
         )}
       </div>
 
-      <NodeSearch
-        open={nodeSearchOpen}
+      <CommandPalette
+        open={commandOpen}
         nodes={diagram.nodes}
-        onClose={() => setNodeSearchOpen(false)}
-        onSelect={onNodeSearchSelect}
+        actions={commandActions}
+        onClose={() => setCommandOpen(false)}
+        onSelect={onCommandSelect}
       />
 
       {shortcutsOpen ? (
         <div
           className="dialog-backdrop"
           role="presentation"
+          data-testid="shortcuts-sheet"
           onClick={() => setShortcutsOpen(false)}
         >
           <div
@@ -916,6 +1047,9 @@ function EditorInner() {
                 <kbd>Alt</kbd> Disable snap while dragging · hover to measure
               </li>
               <li>
+                <kbd>Alt</kbd>+drag Duplicate (leave a copy behind)
+              </li>
+              <li>
                 <kbd>Ctrl/Cmd</kbd>+<kbd>Z</kbd> Undo
               </li>
               <li>
@@ -928,13 +1062,25 @@ function EditorInner() {
                 <kbd>Ctrl/Cmd</kbd>+<kbd>C</kbd> / <kbd>V</kbd> Copy / Paste
               </li>
               <li>
+                <kbd>Ctrl/Cmd</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd> Paste in place
+              </li>
+              <li>
                 <kbd>Ctrl/Cmd</kbd>+<kbd>D</kbd> Duplicate selection
               </li>
               <li>
-                <kbd>Ctrl/Cmd</kbd>+<kbd>K</kbd> Search or add nodes
+                <kbd>Ctrl/Cmd</kbd>+<kbd>G</kbd> Group · <kbd>Shift</kbd>+<kbd>G</kbd> Ungroup
+              </li>
+              <li>
+                <kbd>Ctrl/Cmd</kbd>+<kbd>K</kbd> or <kbd>/</kbd> Quick actions
+              </li>
+              <li>
+                <kbd>Shift</kbd>+<kbd>?</kbd> This shortcuts sheet
               </li>
               <li>
                 <kbd>Ctrl/Cmd</kbd>+<kbd>Shift</kbd>+<kbd>H</kbd> Hide / show
+              </li>
+              <li>
+                <kbd>Ctrl/Cmd</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> Lock / unlock
               </li>
               <li>
                 <kbd>Ctrl/Cmd</kbd>+<kbd>]</kbd> / <kbd>[</kbd> Bring forward / send backward
