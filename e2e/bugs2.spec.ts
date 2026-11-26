@@ -87,7 +87,7 @@ test.describe('BUGS2 editor UX', () => {
     await signUpAndOpenEditor(page, 'bugs2-3')
     await addKind(page, 'Sticky')
 
-    const sticky = page.getByTestId('sticky-card')
+    const sticky = page.getByTestId('sticky-card').last()
     await sticky.dblclick()
     await expect(page.getByTestId('sticky-input')).toBeVisible()
     await page.getByTestId('sticky-input').fill('Hello sticky')

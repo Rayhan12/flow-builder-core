@@ -30,7 +30,7 @@ async function addKind(page: Page, label: string) {
 
 async function seedStickyLongText(page: Page, text: string) {
   await addKind(page, 'Sticky')
-  const sticky = page.getByTestId('sticky-card')
+  const sticky = page.getByTestId('sticky-card').last()
   await sticky.dblclick()
   const input = page.getByTestId('sticky-input')
   await expect(input).toBeVisible()
@@ -53,7 +53,10 @@ test.describe('EDITOR3 text, shapes, palette, collapse', () => {
     await expect(stickyText).toContainText('Line 1:')
     await expect(stickyText).toContainText('Line 12:')
 
-    const height = await page.getByTestId('sticky-card').evaluate((el) => el.getBoundingClientRect().height)
+    const height = await page
+      .getByTestId('sticky-card')
+      .last()
+      .evaluate((el) => el.getBoundingClientRect().height)
     expect(height).toBeGreaterThan(160)
 
     await page.screenshot({ path: path.join(RUNS, 'fix-long-sticky.png') })
