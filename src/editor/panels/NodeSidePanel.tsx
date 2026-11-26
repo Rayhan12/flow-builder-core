@@ -348,7 +348,11 @@ export function NodeSidePanel({ readOnly = false }: PanelProps) {
               maxLength={200}
               aria-label="Node title"
               data-testid="properties-label"
-              onChange={(e) => setFieldOnAll('label', e.target.value)}
+              readOnly={readOnly}
+              onChange={(e) => {
+                if (readOnly) return
+                setFieldOnAll('label', e.target.value)
+              }}
             />
           </div>
         </div>
@@ -362,6 +366,7 @@ export function NodeSidePanel({ readOnly = false }: PanelProps) {
         </button>
       </div>
 
+      {!readOnly ? (
       <div
         className="side-panel-quick"
         role="toolbar"
@@ -488,6 +493,7 @@ export function NodeSidePanel({ readOnly = false }: PanelProps) {
           ) : null}
         </div>
       </div>
+      ) : null}
 
       {!multi ? (
         <section className="side-section" data-testid="what-is-this">
@@ -497,6 +503,10 @@ export function NodeSidePanel({ readOnly = false }: PanelProps) {
         </section>
       ) : null}
 
+      {readOnly ? (
+        <DesignSection nodes={selectedNodes} allNodes={diagram.nodes} readOnly />
+      ) : (
+        <>
       <div className="side-panel-tabs" role="tablist" aria-label="Node panel sections">
         {(
           [
@@ -519,7 +529,9 @@ export function NodeSidePanel({ readOnly = false }: PanelProps) {
         ))}
       </div>
 
-      {tab === 'design' ? <DesignSection nodes={selectedNodes} allNodes={diagram.nodes} /> : null}
+      {tab === 'design' ? (
+        <DesignSection nodes={selectedNodes} allNodes={diagram.nodes} readOnly={false} />
+      ) : null}
 
       {tab === 'settings' ? (
         <>
@@ -674,6 +686,8 @@ export function NodeSidePanel({ readOnly = false }: PanelProps) {
           ) : null}
         </section>
       ) : null}
+        </>
+      )}
     </aside>
   )
 }

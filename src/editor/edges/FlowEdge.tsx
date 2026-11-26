@@ -320,7 +320,7 @@ export function FlowEdge({
     return () => cancelAnimationFrame(raf)
   }, [path])
 
-  const labelT = edge?.labelPosition
+  const labelT = edge?.data?.labelT ?? edge?.labelPosition
   const autoLabel = useMemo(() => {
     if (labelT !== undefined) return null
     return pickLabelPoint(polyPoints, [], [])
@@ -331,6 +331,32 @@ export function FlowEdge({
       : autoLabel
         ? { x: autoLabel.x, y: autoLabel.y }
         : { x: midX, y: midY }
+
+  /** Midpoints of middle segments for elbow offset handles. */
+  const elbowHandles = useMemo(() => {
+    if (edgeType !== 'elbow' || polyPoints.length < 4) return [] as Array<{
+      x: number
+      y: number
+      index: number
+      horiz: boolean
+    }>
+    const handles: Array<{ x: number; y: number; index: number; horiz: boolean }> = []
+    // Middle segments: between points 1..n-2
+    for (let i = 1; i < polyPoints.length - 2; i += 1) {
+      const a = polyPoints[i]
+      const b = polyPoints[i + 1]
+      const len = Math.hypot(b.x - a.x, b.y - a.y)
+      if (len < 20) continue
+      const horiz = Math.abs(a.y - b.y) < 0.75
+      handles.push({
+        x: (a.x + b.x) / 2,
+        y: (a.y + b.y) / 2,
+        index: i - 1,
+        horiz,
+      })
+    }
+    return handles
+  }, [polyPoints, edgeType])
 
   const insertNodeOnEdge = useEditorStore((s) => s.insertNodeOnEdge)
   const updateEdge = useEditorStore((s) => s.updateEdge)
@@ -417,7 +443,10 @@ export function FlowEdge({
       dragging = true
       const delta = (ev.clientX - startX) / dxTotal
       const next = Math.max(0.05, Math.min(0.95, startT + delta))
-      updateEdge(id, { labelPosition: next })
+      updateEdge(id, {
+        labelPosition: next,
+        data: { ...(edge?.data ?? {}), labelT: next },
+      })
     }
     function onUp() {
       window.removeEventListener('pointermove', onMove)
@@ -451,14 +480,6 @@ export function FlowEdge({
     }
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
-  }
-
-  function addWaypointFromMid(e: React.PointerEvent) {
-    if (edgeType === 'curved') return
-    e.stopPropagation()
-    const point = { x: midX, y: midY }
-    const next = [...waypoints, point]
-    updateEdge(id, { waypoints: next })
   }
 
   function removeWaypoint(index: number) {
@@ -541,7 +562,55 @@ export function FlowEdge({
         </>
       ) : null}
       <EdgeLabelRenderer>
-        {selected && edgeType !== 'curved'
+        {selected && edgeType === 'elbow'
+          ? elbowHandles.map((h) => (
+              <div
+                key={`elbow-${h.index}`}
+                className="flow-edge-elbow-handle"
+                data-testid="edge-elbow-handle"
+                style={{
+                  position: 'absolute',
+                  transform: `translate(-50%, -50%) translate(${h.x}px, ${h.y}px)`,
+                  pointerEvents: 'all',
+                  cursor: h.horiz ? 'ns-resize' : 'ew-resize',
+                }}
+                title="Drag to move this segment. Double-click to reset."
+                onDoubleClick={(e) => {
+                  e.stopPropagation()
+                  const offsets = [...(edge?.data?.elbowOffsets ?? [])]
+                  offsets[h.index] = 0
+                  updateEdge(id, {
+                    data: { ...(edge?.data ?? {}), elbowOffsets: offsets },
+                    waypoints: undefined,
+                  })
+                }}
+                onPointerDown={(e) => {
+                  e.stopPropagation()
+                  e.preventDefault()
+                  const origin = h.horiz ? e.clientY : e.clientX
+                  const base = edge?.data?.elbowOffsets?.[h.index] ?? 0
+                  function onMove(ev: PointerEvent) {
+                    const delta = (h.horiz ? ev.clientY : ev.clientX) - origin
+                    let next = base + delta
+                    if (Math.abs(next) <= 10) next = 0
+                    const offsets = [...(edge?.data?.elbowOffsets ?? [])]
+                    while (offsets.length <= h.index) offsets.push(0)
+                    offsets[h.index] = next
+                    updateEdge(id, {
+                      data: { ...(edge?.data ?? {}), elbowOffsets: offsets },
+                    })
+                  }
+                  function onUp() {
+                    window.removeEventListener('pointermove', onMove)
+                    window.removeEventListener('pointerup', onUp)
+                  }
+                  window.addEventListener('pointermove', onMove)
+                  window.addEventListener('pointerup', onUp)
+                }}
+              />
+            ))
+          : null}
+        {selected && edgeType !== 'curved' && edgeType !== 'elbow'
           ? waypoints.map((wp, index) => (
               <div
                 key={`wp-${index}`}
@@ -561,19 +630,6 @@ export function FlowEdge({
               />
             ))
           : null}
-        {selected && edgeType !== 'curved' && waypoints.length === 0 ? (
-          <div
-            className="flow-edge-waypoint is-mid"
-            data-testid="edge-waypoint-add"
-            style={{
-              position: 'absolute',
-              transform: `translate(-50%, -50%) translate(${midX}px, ${midY}px)`,
-              pointerEvents: 'all',
-            }}
-            onPointerDown={addWaypointFromMid}
-            title="Drag to add a bend point"
-          />
-        ) : null}
         <div
           ref={wrapRef}
           className="flow-edge-midpoint"

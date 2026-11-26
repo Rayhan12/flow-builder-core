@@ -29,9 +29,10 @@ function hexOr(value: string | undefined, fallback: string): string {
 type Props = {
   nodes: DiagramNode[]
   allNodes: DiagramNode[]
+  readOnly?: boolean
 }
 
-export function DesignSection({ nodes, allNodes }: Props) {
+export function DesignSection({ nodes, allNodes, readOnly = false }: Props) {
   const moveNodes = useEditorStore((s) => s.moveNodes)
   const resizeNodes = useEditorStore((s) => s.resizeNodes)
   const patchNodeStyle = useEditorStore((s) => s.patchNodeStyle)
@@ -93,6 +94,33 @@ export function DesignSection({ nodes, allNodes }: Props) {
 
   const disabled = editable.length === 0
   const multi = nodes.length > 1
+
+  if (readOnly) {
+    const node = nodes[0]
+    return (
+      <section
+        className="side-section side-panel-readonly-info"
+        data-testid="design-section-readonly"
+      >
+        <h3 className="side-section-label">Info</h3>
+        <dl>
+          <dt>Label</dt>
+          <dd>{node?.label || 'Untitled'}</dd>
+          <dt>Kind</dt>
+          <dd>{node?.kind}</dd>
+          <dt>Position</dt>
+          <dd>
+            X {typeof x === 'number' ? x : 'Mixed'}, Y {typeof y === 'number' ? y : 'Mixed'}
+          </dd>
+          <dt>Size</dt>
+          <dd>
+            W {typeof w === 'number' ? w : 'Mixed'}, H {typeof h === 'number' ? h : 'Mixed'}
+          </dd>
+        </dl>
+        <p className="field-help">View mode is read-only. Switch to edit to change the diagram.</p>
+      </section>
+    )
+  }
 
   return (
     <>

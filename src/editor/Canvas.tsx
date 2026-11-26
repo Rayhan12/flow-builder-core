@@ -74,8 +74,10 @@ import {
   readPaletteDragKind,
 } from './paletteDrop'
 import { setLastFlowPoint } from './pointerPosition'
+import { EdgeStyleToolbar } from './edges/EdgeStyleToolbar'
 import { SelectionToolbar } from './SelectionToolbar'
 import { sortNodesForCanvas } from './zOrder'
+import type { NodeKind } from '../schema'
 
 import '@xyflow/react/dist/style.css'
 
@@ -257,6 +259,14 @@ export function Canvas({
   const [connectPreviewPt, setConnectPreviewPt] = useState<{ x: number; y: number } | null>(
     null,
   )
+  const [quickCreate, setQuickCreate] = useState<{
+    x: number
+    y: number
+    flowX: number
+    flowY: number
+    sourceId: string
+    sourceHandle: string | null
+  } | null>(null)
   const altDragDupRef = useRef(false)
   const dragDepthRef = useRef(0)
   const reconnectingRef = useRef(false)
@@ -289,6 +299,7 @@ export function Canvas({
   const groupSelection = useEditorStore((s) => s.groupSelection)
   const ungroupSelection = useEditorStore((s) => s.ungroupSelection)
   const addConnectedNode = useEditorStore((s) => s.addConnectedNode)
+  const addNode = useEditorStore((s) => s.addNode)
   const replaceNode = useEditorStore((s) => s.replaceNode)
 
   useEffect(() => {
@@ -707,12 +718,17 @@ export function Canvas({
     (connection: Connection) => {
       if (viewOnly) return
       if (!connection.source || !connection.target) return
+      // Explicit side/branch dots pin; body drops float and recompute facing sides.
+      const pinnedSource = Boolean(connection.sourceHandle)
+      const pinnedTarget = Boolean(connection.targetHandle)
       const { sourceHandle, targetHandle } = resolveHandles(connection)
       addEdgeFromConnection({
         source: connection.source,
         target: connection.target,
         sourceHandle,
         targetHandle,
+        pinnedSource,
+        pinnedTarget,
       })
       // Drag-connect completed; clear any click-connect pending state.
       clearConnectPending()
@@ -725,12 +741,16 @@ export function Canvas({
     (oldEdge, connection) => {
       if (viewOnly) return
       if (!connection.source || !connection.target) return
+      const pinnedSource = Boolean(connection.sourceHandle)
+      const pinnedTarget = Boolean(connection.targetHandle)
       const { sourceHandle, targetHandle } = resolveHandles(connection)
       reconnectEdge(oldEdge.id, {
         source: connection.source,
         target: connection.target,
         sourceHandle,
         targetHandle,
+        pinnedSource,
+        pinnedTarget,
       })
       onConnectTargetChange?.(null)
     },
@@ -841,12 +861,32 @@ export function Canvas({
 
       if (state.isValid || !('fromNode' in state) || !state.fromNode) return
       const hit = hitTestConnect(event, state.fromNode.id, state.fromHandle?.id)
-      if (!hit) return
+      if (!hit) {
+        // Drop on empty canvas: open quick-create at the pointer.
+        const flowPt = screenToFlowPosition({ x: clientX, y: clientY })
+        setQuickCreate({
+          x: clientX,
+          y: clientY,
+          flowX: flowPt.x,
+          flowY: flowPt.y,
+          sourceId: state.fromNode.id,
+          sourceHandle:
+            state.fromHandle?.id && state.fromHandle.id !== 'null'
+              ? String(state.fromHandle.id)
+              : null,
+        })
+        return
+      }
+      const pinnedSource = Boolean(
+        state.fromHandle?.id && state.fromHandle.id !== 'null',
+      )
       addEdgeFromConnection({
         source: state.fromNode.id,
         target: hit.targetId,
         sourceHandle: hit.sourceHandle,
         targetHandle: hit.targetHandle,
+        pinnedSource,
+        pinnedTarget: false,
       })
       if (connectMode) {
         onConnectFromChange?.(hit.targetId)
@@ -1351,6 +1391,7 @@ export function Canvas({
             zoomable
             position="bottom-right"
             nodeStrokeWidth={2}
+            style={{ marginRight: 12, marginBottom: 12 }}
             maskColor="color-mix(in srgb, var(--color-chrome-dark) 12%, transparent)"
           />
         ) : null}
@@ -1363,6 +1404,11 @@ export function Canvas({
               onDistribute={distributeSelection}
               onTidy={tidySelection}
             />
+          </Panel>
+        ) : null}
+        {selectedEdgeIds.length > 0 && selectedNodeIds.length === 0 && !viewOnly ? (
+          <Panel position="top-center" className="selection-toolbar-panel">
+            <EdgeStyleToolbar edgeIds={selectedEdgeIds} />
           </Panel>
         ) : null}
         {diagram.nodes.length === 0 ? (
@@ -1621,6 +1667,57 @@ export function Canvas({
               Paste
             </button>
           )}
+        </div>
+      ) : null}
+      {quickCreate && !viewOnly ? (
+        <div
+          className="canvas-context-menu quick-create-menu"
+          role="menu"
+          data-testid="quick-create-menu"
+          style={{ left: quickCreate.x, top: quickCreate.y }}
+        >
+          {(
+            [
+              ['step', 'Step'],
+              ['decision', 'Decision'],
+              ['end', 'End'],
+              ['switch', 'Switch'],
+            ] as Array<[NodeKind, string]>
+          ).map(([kind, label]) => (
+            <button
+              key={kind}
+              type="button"
+              role="menuitem"
+              className="canvas-context-item"
+              data-testid={`quick-create-${kind}`}
+              onClick={() => {
+                const id = addNode(kind, {
+                  x: Math.round(quickCreate.flowX / GRID_SIZE) * GRID_SIZE,
+                  y: Math.round(quickCreate.flowY / GRID_SIZE) * GRID_SIZE,
+                })
+                if (id) {
+                  addEdgeFromConnection({
+                    source: quickCreate.sourceId,
+                    target: id,
+                    sourceHandle: quickCreate.sourceHandle ?? undefined,
+                    pinnedSource: Boolean(quickCreate.sourceHandle),
+                    pinnedTarget: false,
+                  })
+                }
+                setQuickCreate(null)
+              }}
+            >
+              {label}
+            </button>
+          ))}
+          <button
+            type="button"
+            role="menuitem"
+            className="canvas-context-item"
+            onClick={() => setQuickCreate(null)}
+          >
+            Cancel
+          </button>
         </div>
       ) : null}
     </div>
