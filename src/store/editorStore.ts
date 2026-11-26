@@ -61,9 +61,12 @@ type EditorState = {
   selectedEdgeIds: string[]
   past: HistoryEntry[]
   future: HistoryEntry[]
+  /** When true, every diagram-mutating action is a no-op (view mode). */
+  readOnly: boolean
 
   load: (diagram: Diagram, revision: number) => void
   reset: () => void
+  setReadOnly: (readOnly: boolean) => void
   getDiagram: () => Diagram | null
 
   setTitle: (title: string) => void
@@ -255,9 +258,11 @@ function applyBody(diagram: Diagram, body: HistoryEntry): Diagram {
 function withHistory(
   state: EditorState,
   mutator: (diagram: Diagram) => Diagram,
-  options: { record?: boolean } = {},
+  options: { record?: boolean; allowReadOnly?: boolean } = {},
 ): Partial<EditorState> {
   if (!state.diagram) return {}
+  // View mode blocks user edits; layout/measure may still run with allowReadOnly.
+  if (state.readOnly && !options.allowReadOnly) return {}
   const record = options.record !== false
   const past = record
     ? [...state.past, cloneBody(state.diagram)].slice(-MAX_HISTORY)
@@ -281,6 +286,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   selectedEdgeIds: [],
   past: [],
   future: [],
+  readOnly: false,
 
   load: (diagram, revision) =>
     set({
@@ -304,7 +310,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       selectedEdgeIds: [],
       past: [],
       future: [],
+      readOnly: false,
     }),
+
+  setReadOnly: (readOnly) => set({ readOnly }),
 
   getDiagram: () => get().diagram,
 
@@ -436,7 +445,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           ...d,
           nodes: d.nodes.map((n) => (n.id === id ? { ...n, size } : n)),
         }),
-        { record: recordHistory },
+        { record: recordHistory, allowReadOnly: true },
       ),
     ),
 
@@ -453,7 +462,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
             return size ? ({ ...n, size } as DiagramNode) : n
           }),
         }),
-        { record: recordHistory },
+        { record: recordHistory, allowReadOnly: true },
       ),
     )
   },
@@ -517,22 +526,30 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   applyNodeLayout: (nodes, edges) =>
     set((state) =>
-      withHistory(state, (d) => ({
-        ...d,
-        nodes: structuredClone(nodes),
-        edges: edges ? structuredClone(edges) : d.edges,
-        layoutPending: false,
-        fitPending: false,
-      })),
+      withHistory(
+        state,
+        (d) => ({
+          ...d,
+          nodes: structuredClone(nodes),
+          edges: edges ? structuredClone(edges) : d.edges,
+          layoutPending: false,
+          fitPending: false,
+        }),
+        { allowReadOnly: true },
+      ),
     ),
 
   replaceDiagramContent: (diagram) =>
     set((state) => {
       if (!state.diagram) return {}
-      return withHistory(state, () => ({
-        ...diagram,
-        id: state.diagram!.id,
-      }))
+      return withHistory(
+        state,
+        () => ({
+          ...diagram,
+          id: state.diagram!.id,
+        }),
+        { allowReadOnly: true },
+      )
     }),
 
   addEdgeFromConnection: (conn) => {
@@ -1172,7 +1189,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   undo: () =>
     set((state) => {
-      if (!state.diagram || state.past.length === 0) return {}
+      if (state.readOnly || !state.diagram || state.past.length === 0) return {}
       const previous = state.past[state.past.length - 1]
       const past = state.past.slice(0, -1)
       const future = [cloneBody(state.diagram), ...state.future].slice(0, MAX_HISTORY)
@@ -1188,7 +1205,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   redo: () =>
     set((state) => {
-      if (!state.diagram || state.future.length === 0) return {}
+      if (state.readOnly || !state.diagram || state.future.length === 0) return {}
       const [next, ...rest] = state.future
       const past = [...state.past, cloneBody(state.diagram)].slice(-MAX_HISTORY)
       return {

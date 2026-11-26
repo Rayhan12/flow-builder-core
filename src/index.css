@@ -991,6 +991,7 @@ input {
   display: grid;
   grid-template-columns: 264px 1fr 360px;
   transition: grid-template-columns 180ms ease-out;
+  position: relative;
 }
 
 .editor-body:has(.node-palette.is-collapsed) {
@@ -1003,6 +1004,28 @@ input {
 
 .editor-body.has-ai-panel:has(.node-palette.is-collapsed) {
   grid-template-columns: 56px 1fr 380px;
+}
+
+/* View mode: canvas fills the width; optional info panel overlays, never a grid column. */
+.editor-body.is-view-only {
+  grid-template-columns: 1fr;
+}
+
+.editor-body.is-view-only .side-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(280px, 32vw);
+  z-index: 25;
+  box-shadow: var(--shadow-float);
+  border-left: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.editor-body.is-view-only > .toast {
+  /* Keep the fixed toast from claiming a grid track. */
+  position: fixed;
 }
 
 .editor-left {
@@ -1507,12 +1530,13 @@ input {
 }
 
 .react-flow__node:hover .quick-add-buttons,
-.react-flow__node.selected .quick-add-buttons {
+.react-flow__node.selected .quick-add-buttons,
+.quick-add-buttons.is-armed {
   opacity: 1;
 }
 
 .quick-add-btn {
-  pointer-events: all;
+  pointer-events: none;
   position: absolute;
   width: 18px;
   height: 18px;
@@ -1525,7 +1549,12 @@ input {
   padding: 0;
   cursor: pointer;
   box-shadow: var(--shadow-float);
-  z-index: 4;
+  /* Below the handle hit target so connection drags win. */
+  z-index: 1;
+}
+
+.quick-add-buttons.is-armed .quick-add-btn {
+  pointer-events: all;
 }
 
 .quick-add-btn:hover {
@@ -2334,12 +2363,12 @@ input {
   opacity: 1;
 }
 
-/* Keep the startable source handle above the stacked target twin. */
+/* Keep the startable source handle above the stacked target twin and quick-add. */
 .react-flow__handle.source {
-  z-index: 2;
+  z-index: 5;
 }
 .react-flow__handle.target {
-  z-index: 1;
+  z-index: 4;
 }
 
 .flow-handle:hover,
@@ -2426,7 +2455,7 @@ input {
 @media (prefers-reduced-motion: reduce) {
   .react-flow.is-view-only .react-flow__edge.is-view-flow .react-flow__edge-path,
   .react-flow.is-view-only .react-flow__edge-path.is-view-flow-path {
-    animation: none;
+    animation: none !important;
   }
 }
 
@@ -3399,9 +3428,17 @@ input {
     grid-template-columns: 56px 1fr;
   }
 
+  .editor-body.is-view-only {
+    grid-template-columns: 1fr;
+  }
+
   .side-panel,
   .ai-panel {
     display: none;
+  }
+
+  .editor-body.is-view-only .side-panel {
+    display: flex;
   }
 }
 

@@ -220,6 +220,8 @@ function EditorInner() {
   const location = useLocation()
   const selectionKey = `${selectedNodeIds.join(',')}|${selectedEdgeIds.join(',')}`
 
+  const setReadOnly = useEditorStore((s) => s.setReadOnly)
+
   const setViewOnly = useCallback(
     (next: boolean) => {
       setSearchParams(
@@ -231,17 +233,32 @@ function EditorInner() {
         },
         { replace: true },
       )
+      setReadOnly(next)
       if (next) {
         setTool('select')
         setConnectFromId(null)
         setConnectFromHandle(null)
         setConnectTargetId(null)
+        setConnectorHint(null)
       } else {
         setViewFocusNodeId(null)
       }
     },
-    [setSearchParams],
+    [setSearchParams, setReadOnly],
   )
+
+  useEffect(() => {
+    setReadOnly(viewOnly)
+    if (viewOnly) {
+      setTool('select')
+      setConnectFromId(null)
+      setConnectFromHandle(null)
+      setConnectTargetId(null)
+      setConnectorHint(null)
+    } else {
+      setViewFocusNodeId(null)
+    }
+  }, [viewOnly, setReadOnly])
 
   const dismissViewMenu = useCallback(() => setViewMenuOpen(false), [])
   useDismiss({
@@ -284,6 +301,7 @@ function EditorInner() {
     setConnectFromId(null)
     setConnectFromHandle(null)
     setConnectTargetId(null)
+    setConnectorHint(null)
   }
 
   const zoomToSelection = useCallback(() => {
@@ -1440,8 +1458,10 @@ function EditorInner() {
             projectId={projectId}
             diagramId={diagramId}
           />
+        ) : viewOnly ? (
+          viewFocusNodeId ? <NodeSidePanel readOnly /> : null
         ) : (
-          <NodeSidePanel readOnly={viewOnly} />
+          <NodeSidePanel />
         )}
       </div>
 

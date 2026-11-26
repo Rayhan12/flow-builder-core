@@ -432,6 +432,10 @@ export function FlowEdge({
           stroke: viewHighlight === 'flow' ? 'var(--color-accent)' : stroke,
           strokeWidth: viewHighlight === 'flow' ? Math.max(strokeWidth, 2.5) : strokeWidth,
           strokeDasharray: dash,
+          // Inline so getComputedStyle.animationName is not 'none' after a real click.
+          ...(viewHighlight === 'flow'
+            ? { animation: 'view-edge-flow 0.7s linear infinite' }
+            : null),
         }}
         className={
           viewHighlight === 'flow'
