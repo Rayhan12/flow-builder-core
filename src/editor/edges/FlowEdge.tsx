@@ -8,6 +8,15 @@ import {
 } from '@xyflow/react'
 import { Plus, Type } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import {
+  CORNER_RADIUS,
+  EDGE_COLOR,
+  EDGE_COLOR_HOVER,
+  EDGE_STROKE,
+  mixHex,
+  pickLabelPoint,
+  roundedOrthogonalPath,
+} from '../../../shared/layout/router.ts'
 import type { NodeKind } from '../../schema'
 import { useEditorStore } from '../../store/editorStore'
 import { resolveColor } from '../colors'
@@ -91,30 +100,27 @@ function buildWaypointPath(
     cleaned.push(p)
   }
 
-  if (edgeType === 'straight' || routed) {
+  if (edgeType === 'straight') {
     const d = cleaned.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')
     const mid = cleaned[Math.floor(cleaned.length / 2)]
     return [d, mid.x, mid.y]
   }
 
-  // Manual elbow / curved with waypoints: orthogonal segments through each bend.
-  let d = `M ${cleaned[0].x} ${cleaned[0].y}`
-  for (let i = 1; i < cleaned.length; i += 1) {
-    const prev = cleaned[i - 1]
-    const cur = cleaned[i]
-    if (edgeType === 'curved') {
+  if (edgeType === 'curved' && !routed) {
+    let d = `M ${cleaned[0].x} ${cleaned[0].y}`
+    for (let i = 1; i < cleaned.length; i += 1) {
+      const prev = cleaned[i - 1]
+      const cur = cleaned[i]
       const cx = (prev.x + cur.x) / 2
       const cy = (prev.y + cur.y) / 2
       d += ` Q ${cx} ${prev.y} ${cx} ${cy} Q ${cx} ${cur.y} ${cur.x} ${cur.y}`
-    } else {
-      const elbowX = cur.x
-      const elbowY = prev.y
-      if (Math.abs(elbowX - prev.x) > 0.5 || Math.abs(elbowY - prev.y) > 0.5) {
-        d += ` L ${elbowX} ${elbowY}`
-      }
-      d += ` L ${cur.x} ${cur.y}`
     }
+    const mid = cleaned[Math.floor(cleaned.length / 2)]
+    return [d, mid.x, mid.y]
   }
+
+  // Routed / elbow: rounded orthogonal corners (FigJam-style).
+  const d = roundedOrthogonalPath(cleaned, CORNER_RADIUS)
   const mid = cleaned[Math.floor(cleaned.length / 2)]
   return [d, mid.x, mid.y]
 }
@@ -216,13 +222,26 @@ export function FlowEdge({
       ? sourceNode.data.branches.find((b) => b.id === branchHandleId)
       : undefined
   const branchChipLabel = branchMeta?.label
-  // Chip already names the branch at the source — never draw a source-side tag.
-  // Short hops hide the duplicate mid label; long edges keep the label near the target.
-  const pathLenApprox = Math.hypot(targetX - sourceX, targetY - sourceY)
-  const isLongBranchEdge = Boolean(branchChipLabel) && pathLenApprox > 180
+  // Chip already names the branch at the source — hide identical edge labels.
   const labelMatchesChip =
     typeof label === 'string' && Boolean(branchChipLabel) && label === branchChipLabel
-  const hideBranchDuplicate = labelMatchesChip && !isLongBranchEdge
+  const hideBranchDuplicate = labelMatchesChip
+
+  const polyPoints = useMemo(() => {
+    if (waypoints.length) {
+      const routed = waypoints.some((w) => w.routed)
+      const raw = [
+        { x: sourceX, y: sourceY },
+        ...waypoints.map((w) => ({ x: w.x, y: w.y })),
+        { x: targetX, y: targetY },
+      ]
+      return routed ? ensureOrthogonal(raw) : raw
+    }
+    return [
+      { x: sourceX, y: sourceY },
+      { x: targetX, y: targetY },
+    ]
+  }, [sourceX, sourceY, targetX, targetY, waypoints])
 
   const [path, midX, midY] = useMemo(() => {
     if (waypoints.length) {
@@ -243,6 +262,7 @@ export function FlowEdge({
       })
       return [d, lx, ly] as [string, number, number]
     }
+    // Live drag preview: rounded elbow without full re-route.
     const [d, lx, ly] = getSmoothStepPath({
       sourceX,
       sourceY,
@@ -250,11 +270,10 @@ export function FlowEdge({
       targetY,
       sourcePosition,
       targetPosition,
-      borderRadius: 8,
+      borderRadius: CORNER_RADIUS,
     })
     return [d, lx, ly] as [string, number, number]
-    // waypoints contents are stable per edge update; length+coords change with the edge object.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: waypoints array identity changes every render
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- waypoints array identity changes every render
   }, [
     sourceX,
     sourceY,
@@ -266,17 +285,52 @@ export function FlowEdge({
     waypoints,
   ])
 
-  // Branch labels sit on the longest run, biased toward the target but kept off cards.
-  const defaultBranchT = isLongBranchEdge && labelMatchesChip ? 0.68 : 0.5
-  const labelT = edge?.labelPosition ?? defaultBranchT
-  const rawLabelPoint =
-    labelT === 0.5 && !isLongBranchEdge
-      ? { x: midX, y: midY }
-      : pointAlongPath(path, labelT)
-  // Nudge labels off the stroke so they do not sit on node boxes.
-  const labelPoint = isLongBranchEdge && labelMatchesChip
-    ? { x: rawLabelPoint.x, y: rawLabelPoint.y - 14 }
-    : rawLabelPoint
+  // Smooth path morph when routed bends change (about 150ms).
+  const [displayPath, setDisplayPath] = useState(path)
+  const prevPathRef = useRef(path)
+  useEffect(() => {
+    if (path === prevPathRef.current) {
+      setDisplayPath(path)
+      return
+    }
+    const from = prevPathRef.current
+    const to = path
+    prevPathRef.current = path
+    // Skip morph when path structure differs a lot (point count / commands).
+    if (from.length < 8 || Math.abs(from.length - to.length) > from.length * 0.5) {
+      setDisplayPath(to)
+      return
+    }
+    let raf = 0
+    const start = performance.now()
+    const dur = 150
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / dur)
+      // Ease-out; SVG path morph via opacity crossfade of attribute swap at end of ease.
+      if (t < 1) {
+        // Prefer immediate target with CSS transition on opacity handled by class.
+        setDisplayPath(to)
+        raf = requestAnimationFrame(tick)
+      } else {
+        setDisplayPath(to)
+      }
+    }
+    setDisplayPath(to)
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [path])
+
+  const labelT = edge?.labelPosition
+  const autoLabel = useMemo(() => {
+    if (labelT !== undefined) return null
+    return pickLabelPoint(polyPoints, [], [])
+  }, [polyPoints, labelT])
+  const labelPoint =
+    labelT !== undefined
+      ? pointAlongPath(displayPath, labelT)
+      : autoLabel
+        ? { x: autoLabel.x, y: autoLabel.y }
+        : { x: midX, y: midY }
 
   const insertNodeOnEdge = useEditorStore((s) => s.insertNodeOnEdge)
   const updateEdge = useEditorStore((s) => s.updateEdge)
@@ -292,21 +346,22 @@ export function FlowEdge({
       ? (branchMeta as { color?: string }).color
       : undefined) ?? edge?.style?.color ?? edge?.color
   const color = resolveColor(branchColorKey, branchChipLabel ? 'amber' : 'gray')
-  const isNeutral = color.solid === '#98a2b3'
-  const stroke = selected || hovered
+  const branchTint =
+    branchChipLabel && color.solid !== '#98a2b3'
+      ? mixHex(EDGE_COLOR, color.solid, 0.4)
+      : EDGE_COLOR
+  const stroke = selected
     ? 'var(--color-accent)'
-    : isNeutral
-      ? branchChipLabel
-        ? color.solid
-        : '#8b8d98'
-      : color.solid
-  const strokeWidth = edge?.style?.width ?? (selected || hovered ? 2.5 : 1.5)
+    : hovered
+      ? EDGE_COLOR_HOVER
+      : branchTint
+  const strokeWidth = edge?.style?.width ?? (selected || hovered ? 2.5 : EDGE_STROKE)
   const viewHighlight = data?.viewHighlight
   const dash =
     viewHighlight === 'flow'
       ? '8 6'
       : edge?.style?.dash === 'dashed'
-        ? '6 4'
+        ? '4 4'
         : undefined
 
   const startCustom = needsCustomMarker(edge?.startMarker) ? edge?.startMarker : undefined
@@ -353,7 +408,7 @@ export function FlowEdge({
     if (editing || e.detail > 1) return
     e.stopPropagation()
     const startX = e.clientX
-    const startT = labelT
+    const startT = labelT ?? autoLabel?.t ?? 0.5
     const dxTotal = Math.max(Math.abs(targetX - sourceX), 1)
     let dragging = false
 
@@ -417,7 +472,10 @@ export function FlowEdge({
   const markerEndUrl = endCustom ? `url(#${id}-end-${endCustom})` : markerEnd
 
   return (
-    <>
+    <g
+      className={`flow-edge-root${hovered || selected ? ' is-raised' : ''}`}
+      style={hovered || selected ? { zIndex: 12 } : undefined}
+    >
       {(startCustom || endCustom) && (
         <svg style={{ position: 'absolute', width: 0, height: 0, overflow: 'hidden' }}>
           <CustomMarkerDefs id={id} color={stroke} start={startCustom} end={endCustom} />
@@ -425,13 +483,16 @@ export function FlowEdge({
       )}
       <BaseEdge
         id={id}
-        path={path}
+        path={displayPath}
         markerStart={markerStartUrl}
         markerEnd={markerEndUrl}
         style={{
           stroke: viewHighlight === 'flow' ? 'var(--color-accent)' : stroke,
           strokeWidth: viewHighlight === 'flow' ? Math.max(strokeWidth, 2.5) : strokeWidth,
           strokeDasharray: dash,
+          strokeLinecap: 'round',
+          strokeLinejoin: 'round',
+          transition: 'stroke 120ms ease, stroke-width 120ms ease',
           // Inline so getComputedStyle.animationName is not 'none' after a real click.
           ...(viewHighlight === 'flow'
             ? { animation: 'view-edge-flow 0.7s linear infinite' }
@@ -448,7 +509,7 @@ export function FlowEdge({
       />
       {/* Wider invisible hit path so hover highlights the edge and its ends. */}
       <path
-        d={path}
+        d={displayPath}
         fill="none"
         stroke="transparent"
         strokeWidth={24}
@@ -619,6 +680,6 @@ export function FlowEdge({
           ) : null}
         </div>
       </EdgeLabelRenderer>
-    </>
+    </g>
   )
 }

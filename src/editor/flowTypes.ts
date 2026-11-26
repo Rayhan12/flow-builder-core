@@ -77,7 +77,7 @@ export function toFlowNode(
 
 export function toFlowEdge(edge: DiagramEdge, selected: boolean): FlowEdge {
   const stroke = resolveColor(edge.style?.color ?? edge.color, 'gray').solid
-  const color = stroke === '#98a2b3' ? '#8b8d98' : stroke
+  const color = stroke === '#98a2b3' || stroke === '#8b8d98' ? '#94A3B8' : stroke
   return {
     id: edge.id,
     type: 'flow',
