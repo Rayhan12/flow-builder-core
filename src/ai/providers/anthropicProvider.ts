@@ -1,4 +1,3 @@
-import { fallbackModelsFor } from './fallbacks'
 import {
   assertOk,
   pingFromHttpError,
@@ -80,15 +79,24 @@ export const anthropicProvider: LLMProvider = {
 
   async listModels(conn, opts) {
     const doFetch = opts?.fetchImpl ?? fetch
-    try {
+    const models: ModelInfo[] = []
+    let afterId: string | undefined
+    // Anthropic pages with has_more / last_id (after_id query).
+    for (;;) {
+      const url = new URL(`${ANTHROPIC_BASE}/models`)
+      url.searchParams.set('limit', '100')
+      if (afterId) url.searchParams.set('after_id', afterId)
       const res = await providerFetch(
-        `${ANTHROPIC_BASE}/models`,
+        url.toString(),
         { method: 'GET', headers: headers(conn), signal: opts?.signal },
         doFetch,
       )
       await assertOk(res)
-      const payload = (await res.json()) as { data?: Array<{ id?: string; display_name?: string }> }
-      const models: ModelInfo[] = []
+      const payload = (await res.json()) as {
+        data?: Array<{ id?: string; display_name?: string }>
+        has_more?: boolean
+        last_id?: string
+      }
       for (const entry of payload.data ?? []) {
         const id = entry.id?.trim()
         if (!id) continue
@@ -98,12 +106,10 @@ export const anthropicProvider: LLMProvider = {
           supportsTools: /claude-3|claude-sonnet|claude-opus|claude-haiku/i.test(id),
         })
       }
-      return models.length > 0
-        ? models
-        : fallbackModelsFor('anthropic').map((id) => ({ id, supportsTools: true }))
-    } catch {
-      return fallbackModelsFor('anthropic').map((id) => ({ id, supportsTools: true }))
+      if (!payload.has_more || !payload.last_id) break
+      afterId = payload.last_id
     }
+    return models
   },
 
   async ping(conn, model, opts) {

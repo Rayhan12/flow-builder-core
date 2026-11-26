@@ -1,4 +1,3 @@
-import { fallbackModelsFor } from './fallbacks'
 import {
   assertOk,
   pingFromHttpError,
@@ -113,45 +112,32 @@ function createOpenAiStyleProvider(id: ProviderId): LLMProvider {
     async listModels(conn, opts) {
       const doFetch = opts?.fetchImpl ?? fetch
       const base = baseUrlFor(id, conn)
-      try {
-        const res = await providerFetch(
-          `${base}/models`,
-          { method: 'GET', headers: headersFor(id, conn), signal: opts?.signal },
-          doFetch,
-        )
-        await assertOk(res)
-        const payload = (await res.json()) as {
-          data?: Array<{
-            id?: string
-            supported_parameters?: string[]
-          }>
-        }
-        const models: ModelInfo[] = []
-        for (const entry of payload.data ?? []) {
-          const modelId = entry.id?.trim()
-          if (!modelId) continue
-          if (id === 'openai' && !isChatModel(modelId)) continue
-          let supportsTools: boolean | undefined
-          if (id === 'openrouter') {
-            supportsTools = (entry.supported_parameters ?? []).includes('tools')
-          } else if (id === 'openai') {
-            supportsTools = openAiSupportsTools(modelId)
-          }
-          models.push({ id: modelId, supportsTools })
-        }
-        if (models.length > 0) return models
-        if (id === 'custom') return []
-        return fallbackModelsFor(id).map((mid) => ({
-          id: mid,
-          supportsTools: id === 'openai' ? openAiSupportsTools(mid) : id === 'openrouter' ? true : undefined,
-        }))
-      } catch {
-        if (id === 'custom') return []
-        return fallbackModelsFor(id).map((mid) => ({
-          id: mid,
-          supportsTools: id === 'openai' ? openAiSupportsTools(mid) : true,
-        }))
+      const res = await providerFetch(
+        `${base}/models`,
+        { method: 'GET', headers: headersFor(id, conn), signal: opts?.signal },
+        doFetch,
+      )
+      await assertOk(res)
+      const payload = (await res.json()) as {
+        data?: Array<{
+          id?: string
+          supported_parameters?: string[]
+        }>
       }
+      const models: ModelInfo[] = []
+      for (const entry of payload.data ?? []) {
+        const modelId = entry.id?.trim()
+        if (!modelId) continue
+        if (id === 'openai' && !isChatModel(modelId)) continue
+        let supportsTools: boolean | undefined
+        if (id === 'openrouter') {
+          supportsTools = (entry.supported_parameters ?? []).includes('tools')
+        } else if (id === 'openai') {
+          supportsTools = openAiSupportsTools(modelId)
+        }
+        models.push({ id: modelId, supportsTools })
+      }
+      return models
     },
 
     async ping(conn, model, opts) {

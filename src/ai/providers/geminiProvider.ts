@@ -1,4 +1,3 @@
-import { fallbackModelsFor } from './fallbacks'
 import {
   assertOk,
   pingFromHttpError,
@@ -113,17 +112,22 @@ export const geminiProvider: LLMProvider = {
 
   async listModels(conn, opts) {
     const doFetch = opts?.fetchImpl ?? fetch
-    try {
+    const models: ModelInfo[] = []
+    let pageToken: string | undefined
+    for (;;) {
+      const url = new URL(`${GEMINI_BASE}/models`)
+      url.searchParams.set('pageSize', '100')
+      if (pageToken) url.searchParams.set('pageToken', pageToken)
       const res = await providerFetch(
-        `${GEMINI_BASE}/models`,
+        url.toString(),
         { method: 'GET', headers: headers(conn), signal: opts?.signal },
         doFetch,
       )
       await assertOk(res)
       const payload = (await res.json()) as {
         models?: Array<{ name?: string; supportedGenerationMethods?: string[] }>
+        nextPageToken?: string
       }
-      const models: ModelInfo[] = []
       for (const entry of payload.models ?? []) {
         const methods = entry.supportedGenerationMethods ?? []
         if (!methods.includes('generateContent')) continue
@@ -132,15 +136,10 @@ export const geminiProvider: LLMProvider = {
         if (!id) continue
         models.push({ id, supportsTools: geminiSupportsTools(id) })
       }
-      return models.length > 0
-        ? models
-        : fallbackModelsFor('gemini').map((id) => ({ id, supportsTools: geminiSupportsTools(id) }))
-    } catch {
-      return fallbackModelsFor('gemini').map((id) => ({
-        id,
-        supportsTools: geminiSupportsTools(id),
-      }))
+      if (!payload.nextPageToken) break
+      pageToken = payload.nextPageToken
     }
+    return models
   },
 
   async ping(conn, model, opts) {

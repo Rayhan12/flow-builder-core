@@ -1,6 +1,12 @@
 import { getProvider } from './factory'
 import { mapPool } from './http'
-import { saveModelCache, upsertCachedModel } from './modelCache'
+import {
+  computeKeyFingerprint,
+  defaultEnabledIds,
+  getModelCache,
+  saveModelCache,
+  upsertCachedModel,
+} from './modelCache'
 import {
   PING_CONCURRENCY,
   type AiConnection,
@@ -16,38 +22,84 @@ export type ProbeOptions = {
   delayMs?: number
   onProgress?: (done: number, total: number, model: CachedModelStatus) => void
   signal?: AbortSignal
+  /**
+   * 'initial' (default): enable all usable+tools models.
+   * 'refresh': preserve prior enabled for models that still exist and are usable;
+   * newly found usable models are listed but not auto-enabled (isNew).
+   */
+  mode?: 'initial' | 'refresh'
 }
 
 /**
  * List models for a connection, then ping each with the Penny probe
  * (tiny prompt, max 16 tokens, 12s timeout) at concurrency 3.
+ * Throws if listing fails (no silent FALLBACK_MODELS).
  */
 export async function listAndProbeModels(
   uid: string,
   conn: AiConnection,
   opts: ProbeOptions = {},
 ): Promise<ConnectionModelCache> {
+  const keyFingerprint = conn.keyFingerprint ?? (await computeKeyFingerprint(conn))
+  const connWithFp: AiConnection = { ...conn, keyFingerprint }
+  const previous =
+    opts.mode === 'refresh' ? getModelCache(uid, connWithFp) ?? getModelCache(uid, conn.id) : null
+  const mode = opts.mode ?? (previous && previous.enabledModelIds.length > 0 ? 'refresh' : 'initial')
+
   const provider = getProvider(conn.provider)
-  const listed = await provider.listModels(conn, {
-    fetchImpl: opts.fetchImpl,
-    signal: opts.signal,
-  })
+  let listed: ModelInfo[]
+  try {
+    listed = await provider.listModels(connWithFp, {
+      fetchImpl: opts.fetchImpl,
+      signal: opts.signal,
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Could not list models'
+    const failed: ConnectionModelCache = {
+      connectionId: conn.id,
+      keyFingerprint,
+      lastCheckedAt: Date.now(),
+      models: previous?.models ?? [],
+      enabledModelIds: previous?.enabledModelIds ?? [],
+      listError: message,
+    }
+    saveModelCache(uid, failed)
+    throw err instanceof Error ? err : new Error(message)
+  }
+
   const concurrency = opts.concurrency ?? PING_CONCURRENCY
   const delayMs = opts.delayMs ?? 50
+  const priorById = new Map((previous?.models ?? []).map((m) => [m.id, m]))
+  const priorEnabled = new Set(previous?.enabledModelIds ?? [])
 
   let completed = 0
   const statuses = await mapPool(listed, concurrency, async (info: ModelInfo) => {
-    const status = await pingOne(conn, info, opts)
+    const status = await pingOne(connWithFp, info, opts)
     if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs))
     completed += 1
-    opts.onProgress?.(completed, listed.length, status)
-    return status
+    const withNew: CachedModelStatus = {
+      ...status,
+      isNew: mode === 'refresh' && !priorById.has(info.id),
+    }
+    opts.onProgress?.(completed, listed.length, withNew)
+    return withNew
   })
+
+  let enabledModelIds: string[]
+  if (mode === 'refresh' && previous) {
+    enabledModelIds = statuses
+      .filter((m) => m.usable && priorEnabled.has(m.id))
+      .map((m) => m.id)
+  } else {
+    enabledModelIds = defaultEnabledIds(statuses)
+  }
 
   const cache: ConnectionModelCache = {
     connectionId: conn.id,
-    checkedAt: Date.now(),
+    keyFingerprint,
+    lastCheckedAt: Date.now(),
     models: statuses,
+    enabledModelIds,
   }
   saveModelCache(uid, cache)
   return cache
@@ -142,6 +194,6 @@ export async function recheckModel(
   opts: ProbeOptions = {},
 ): Promise<CachedModelStatus> {
   const status = await pingOne(conn, { id: modelId }, opts)
-  upsertCachedModel(uid, conn.id, status)
+  upsertCachedModel(uid, conn, status)
   return status
 }

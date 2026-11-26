@@ -1,5 +1,5 @@
 import { listConnections, primaryConnection } from './connections'
-import { getModelCache } from './modelCache'
+import { getEnabledModels, getModelCache } from './modelCache'
 import type { ProviderId } from './types'
 
 const SELECTED_PREFIX = 'fb:ai:'
@@ -43,35 +43,50 @@ export function setSelectedModel(uid: string, ref: SelectedModelRef): void {
     .catch(() => undefined)
 }
 
+/**
+ * Pick only from stored enabled models. No invented placeholders.
+ * If the saved selection is no longer enabled, fall back to the first enabled
+ * model on that connection, then any connection; else null.
+ */
 export function resolveActiveSelection(uid: string): SelectedModelRef | null {
-  const saved = getSelectedModel(uid)
   const connections = listConnections(uid)
+  if (connections.length === 0) return null
+
+  const saved = getSelectedModel(uid)
   if (saved) {
     const conn = connections.find((c) => c.id === saved.connectionId)
-    if (conn) return saved
+    if (conn) {
+      const enabled = getEnabledModels(uid, conn)
+      if (enabled.some((m) => m.id === saved.model)) return saved
+      const first = enabled[0]
+      if (first) {
+        return { connectionId: conn.id, provider: conn.provider, model: first.id }
+      }
+    }
   }
+
   const primary = primaryConnection(uid)
-  if (!primary) return null
-  const cache = getModelCache(uid, primary.id)
-  const usable = cache?.models.find((m) => m.usable)
-  return {
-    connectionId: primary.id,
-    provider: primary.provider,
-    model: usable?.id ?? defaultModelFor(primary.provider),
+  const ordered = primary
+    ? [primary, ...connections.filter((c) => c.id !== primary.id)]
+    : connections
+
+  for (const conn of ordered) {
+    const enabled = getEnabledModels(uid, conn)
+    const first = enabled[0]
+    if (first) {
+      return { connectionId: conn.id, provider: conn.provider, model: first.id }
+    }
   }
+  return null
 }
 
-function defaultModelFor(provider: ProviderId): string {
-  switch (provider) {
-    case 'gemini':
-      return 'gemini-2.5-flash'
-    case 'anthropic':
-      return 'claude-sonnet-4-5'
-    case 'openai':
-      return 'gpt-4o-mini'
-    case 'openrouter':
-      return 'google/gemini-2.5-flash'
-    case 'custom':
-      return ''
+/** True when the user has a connection but no enabled models stored yet. */
+export function needsModelSetup(uid: string): boolean {
+  const connections = listConnections(uid)
+  if (connections.length === 0) return false
+  for (const conn of connections) {
+    const cache = getModelCache(uid, conn)
+    if (cache && cache.enabledModelIds.length > 0) return false
   }
+  return connections.some((c) => Boolean(c.apiKey.trim() || c.baseUrl?.trim()))
 }

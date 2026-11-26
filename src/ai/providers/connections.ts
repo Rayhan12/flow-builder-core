@@ -1,3 +1,4 @@
+import { computeKeyFingerprint } from './modelCache'
 import type { AiConnection, ProviderId } from './types'
 
 const CONNECTIONS_PREFIX = 'fb:ai:'
@@ -38,6 +39,10 @@ function parseConnections(raw: string | null): AiConnection[] {
         ...c,
         apiKey: c.apiKey,
         createdAt: typeof c.createdAt === 'number' ? c.createdAt : Date.now(),
+        keyFingerprint:
+          typeof c.keyFingerprint === 'string' && c.keyFingerprint.length > 0
+            ? c.keyFingerprint
+            : undefined,
       }))
   } catch {
     return []
@@ -105,11 +110,46 @@ export function upsertConnection(
     headers: input.headers,
     preset: input.preset,
     createdAt: input.createdAt ?? Date.now(),
+    keyFingerprint: input.keyFingerprint,
   }
   const idx = list.findIndex((c) => c.id === id)
   if (idx >= 0) list[idx] = next
   else list.push(next)
   saveConnections(uid, list)
+  return next
+}
+
+/**
+ * Save a connection and attach keyFingerprint = SHA-256(provider+baseUrl+apiKey)[:16].
+ * Prefer this over upsertConnection when the API key (or base URL) may have changed.
+ */
+export async function saveConnectionWithFingerprint(
+  uid: string,
+  input: Omit<AiConnection, 'id' | 'createdAt' | 'keyFingerprint'> & {
+    id?: string
+    createdAt?: number
+  },
+): Promise<AiConnection> {
+  const draft = upsertConnection(uid, input)
+  const keyFingerprint = await computeKeyFingerprint(draft)
+  return upsertConnection(uid, { ...draft, keyFingerprint })
+}
+
+/** Backfill keyFingerprint on connections that predate this field. */
+export async function ensureConnectionFingerprints(uid: string): Promise<AiConnection[]> {
+  const list = listConnections(uid)
+  let changed = false
+  const next: AiConnection[] = []
+  for (const conn of list) {
+    if (conn.keyFingerprint) {
+      next.push(conn)
+      continue
+    }
+    const keyFingerprint = await computeKeyFingerprint(conn)
+    next.push({ ...conn, keyFingerprint })
+    changed = true
+  }
+  if (changed) saveConnections(uid, next)
   return next
 }
 

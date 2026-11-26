@@ -27,7 +27,7 @@ export async function agentCreateDiagram({
       (await import('../editor/layout')).autoLayoutDiagram(nodes, edges, 'DOWN'),
   })
   const project = await port.getProject(projectId)
-  const cache = getModelCache(uid, conn.id)
+  const cache = getModelCache(uid, conn)
   const modelStatus = cache?.models.find((m) => m.id === active.model)
   const result = await generateWithTools({
     apiKey: conn.apiKey,

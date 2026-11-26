@@ -328,7 +328,8 @@ function AgentPanelBody({
     const conn = active ? getConnection(uid, active.connectionId) : null
     if (!active || !conn) {
       pendingPromptRef.current = trimmed
-      setKeyReady(false)
+      if (!hasApiKey(uid)) setKeyReady(false)
+      else setNotice('Set up models in Settings before chatting.')
       return
     }
 
@@ -342,7 +343,7 @@ function AgentPanelBody({
     setItems((prev) => [...prev, { id: localId('u'), kind: 'user', text: trimmed }])
     persist('user', trimmed)
 
-    const cache = getModelCache(uid, conn.id)
+    const cache = getModelCache(uid, conn)
     const modelStatus = cache?.models.find((m) => m.id === active.model)
     const live = new Map<string, ToolCardData>()
     try {

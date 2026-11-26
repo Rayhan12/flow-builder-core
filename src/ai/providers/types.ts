@@ -22,6 +22,11 @@ export type AiConnection = {
   headers?: Record<string, string>
   preset?: CustomPresetId
   createdAt: number
+  /**
+   * First 16 hex chars of SHA-256(provider + baseUrl + apiKey).
+   * Derived locally; never sent to our servers. Used to key the model cache.
+   */
+  keyFingerprint?: string
 }
 
 export type PingReason =
@@ -53,12 +58,25 @@ export type CachedModelStatus = {
   detail?: string
   supportsTools: boolean
   checkedAt: number
+  /** Set on refresh when the model was not in the prior list. */
+  isNew?: boolean
 }
 
 export type ConnectionModelCache = {
   connectionId: string
-  checkedAt: number
+  keyFingerprint: string
+  /** Epoch ms of the last list+probe (or single re-check that touched the record). */
+  lastCheckedAt: number
   models: CachedModelStatus[]
+  /** User-enabled model ids (subset of usable models). */
+  enabledModelIds: string[]
+  /** Present when the last listModels call failed (no silent fallback). */
+  listError?: string
+  /**
+   * @deprecated Prefer lastCheckedAt. Kept for one-release migration of old caches.
+   */
+  checkedAt?: number
+  /** @deprecated Old caches may mark silent fallback lists; new code never sets this. */
   listFromFallback?: boolean
 }
 

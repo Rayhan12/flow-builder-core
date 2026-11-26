@@ -1,5 +1,9 @@
 import type { ProviderId } from './types'
 
+/**
+ * Suggested model ids the Settings UI may offer to probe when listing fails.
+ * Never substitute these silently as a real provider catalog.
+ */
 export const FALLBACK_MODELS: Record<Exclude<ProviderId, 'custom'>, string[]> = {
   gemini: [
     'gemini-2.5-flash',
