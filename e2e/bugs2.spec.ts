@@ -141,7 +141,9 @@ test.describe('BUGS2 editor UX', () => {
 
     const edge = page.locator('.react-flow__edge').first()
     await expect(edge).toBeVisible({ timeout: 10_000 })
-    await edge.click({ force: true })
+    // Clear node selection, then hit the wide edge hit path (not the node body).
+    await page.locator('.react-flow__pane').click({ position: { x: 24, y: 24 }, force: true })
+    await page.locator('[data-testid="edge-hit"]').first().click({ force: true })
 
     // Set label from the properties panel; it renders on the canvas.
     const panelLabel = page.getByLabel('Connector label')

@@ -181,7 +181,9 @@ test.describe('FLOWFIX2: connector tool', () => {
           (e.source === a.id && e.target === b.id) || (e.source === b.id && e.target === a.id),
       ),
     ).toBe(true)
-    await expect(page.locator('.react-flow__edge path.react-flow__edge-path').first()).toBeVisible()
+    await expect(page.locator('.react-flow__edge path.react-flow__edge-path')).toHaveCount(
+      before + 1,
+    )
   })
 
   test('Esc cancels pending arrow then leaves connect mode', async ({ page }) => {
