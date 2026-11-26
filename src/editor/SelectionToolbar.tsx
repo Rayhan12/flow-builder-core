@@ -18,7 +18,7 @@ type Props = {
   onTidy: () => void
 }
 
-const ALIGN_BUTTONS: Array<{ mode: AlignMode; label: string; Icon: typeof AlignStartHorizontal }> = [
+export const ALIGN_BUTTONS: Array<{ mode: AlignMode; label: string; Icon: typeof AlignStartHorizontal }> = [
   { mode: 'left', label: 'Align left', Icon: AlignStartVertical },
   { mode: 'center', label: 'Align centre', Icon: AlignCenterVertical },
   { mode: 'right', label: 'Align right', Icon: AlignEndVertical },

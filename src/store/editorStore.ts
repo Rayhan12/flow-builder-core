@@ -80,6 +80,16 @@ type EditorState = {
   removeNodes: (ids: string[]) => void
   moveNodes: (updates: Array<{ id: string; position: { x: number; y: number } }>, recordHistory: boolean) => void
   resizeNode: (id: string, size: { w: number; h: number }, recordHistory?: boolean) => void
+  resizeNodes: (
+    updates: Array<{ id: string; size: { w: number; h: number } }>,
+    recordHistory: boolean,
+  ) => void
+  /** Merge style fields into each node. Pass undefined for a key to clear it. */
+  patchNodeStyle: (
+    ids: string[],
+    patch: Partial<NonNullable<DiagramNode['style']>>,
+    recordHistory?: boolean,
+  ) => void
   setNodeParent: (
     id: string,
     parentId: string | undefined,
@@ -414,6 +424,49 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         { record: recordHistory },
       ),
     ),
+
+  resizeNodes: (updates, recordHistory) => {
+    if (updates.length === 0) return
+    const map = new Map(updates.map((u) => [u.id, u.size]))
+    set((state) =>
+      withHistory(
+        state,
+        (d) => ({
+          ...d,
+          nodes: d.nodes.map((n) => {
+            const size = map.get(n.id)
+            return size ? ({ ...n, size } as DiagramNode) : n
+          }),
+        }),
+        { record: recordHistory },
+      ),
+    )
+  },
+
+  patchNodeStyle: (ids, patch, recordHistory = true) => {
+    const idSet = new Set(ids)
+    if (idSet.size === 0) return
+    set((state) =>
+      withHistory(
+        state,
+        (d) => ({
+          ...d,
+          nodes: d.nodes.map((n) => {
+            if (!idSet.has(n.id)) return n
+            const style = { ...(n.style ?? {}), ...patch }
+            for (const key of Object.keys(style) as Array<keyof typeof style>) {
+              if (style[key] === undefined) delete style[key]
+            }
+            return {
+              ...n,
+              style: Object.keys(style).length > 0 ? style : undefined,
+            } as DiagramNode
+          }),
+        }),
+        { record: recordHistory },
+      ),
+    )
+  },
 
   setNodeParent: (id, parentId, absolutePosition) =>
     set((state) =>

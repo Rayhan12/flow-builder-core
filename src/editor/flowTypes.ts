@@ -24,7 +24,7 @@ export function absolutePosition(
   return { x: node.position.x + parentAbs.x, y: node.position.y + parentAbs.y }
 }
 
-function defaultSizeFor(node: DiagramNode): { w: number; h: number } {
+export function defaultNodeSize(node: DiagramNode): { w: number; h: number } {
   if (isContainerKind(node.kind)) {
     const collapsed =
       (node.kind === 'group' || node.kind === 'section') && node.data.collapsed === true
@@ -62,7 +62,7 @@ export function toFlowNode(
   const isContainer = isContainerKind(node.kind)
   const collapsed =
     (node.kind === 'group' || node.kind === 'section') && node.data.collapsed === true
-  const fallback = defaultSizeFor(node)
+  const fallback = defaultNodeSize(node)
   const width = node.size?.w ?? fallback.w
   const height = node.size?.h ?? fallback.h
   const hidden = node.hidden === true || options.parentCollapsed === true

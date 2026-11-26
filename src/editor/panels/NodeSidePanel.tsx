@@ -23,9 +23,10 @@ import { getLucideIcon } from '../icons'
 import { IconPicker } from '../IconPicker'
 import { KIND_META } from '../kinds'
 import { DecisionBranchesEditor } from './DecisionBranchesEditor'
+import { DesignSection } from './DesignSection'
 import { RuleBuilder } from './RuleBuilder'
 
-type PanelTab = 'settings' | 'look' | 'notes'
+type PanelTab = 'design' | 'settings' | 'look' | 'notes'
 
 const MIXED = 'Mixed'
 
@@ -53,7 +54,7 @@ export function NodeSidePanel() {
   const reorderZ = useEditorStore((s) => s.reorderZ)
   const duplicateSelection = useEditorStore((s) => s.duplicateSelection)
   const selectSimilar = useEditorStore((s) => s.selectSimilar)
-  const [tab, setTab] = useState<PanelTab>('settings')
+  const [tab, setTab] = useState<PanelTab>('design')
   const [overflowOpen, setOverflowOpen] = useState(false)
 
   const selectedNodes = useMemo(() => {
@@ -452,6 +453,7 @@ export function NodeSidePanel() {
       <div className="side-panel-tabs" role="tablist" aria-label="Node panel sections">
         {(
           [
+            ['design', 'Design'],
             ['settings', 'Settings'],
             ['look', 'Look'],
             ['notes', 'Notes'],
@@ -469,6 +471,8 @@ export function NodeSidePanel() {
           </button>
         ))}
       </div>
+
+      {tab === 'design' ? <DesignSection nodes={selectedNodes} allNodes={diagram.nodes} /> : null}
 
       {tab === 'settings' ? (
         <>
