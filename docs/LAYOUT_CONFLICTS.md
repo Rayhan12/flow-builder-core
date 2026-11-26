@@ -33,7 +33,8 @@ Shared bus segments (two edges from different source handles sharing a collinear
 overlap longer than 4px) are treated as a routing failure and are separated during
 auto-layout, not only during conflict resolve. Parallel channels stay at least
 **10px** apart after the nudging pass. Edges keep **16px** clearance from card edges
-via the orthogonal visibility-graph + A* router in `shared/layout/router.ts`.
+(at least 12px visual padding) via the orthogonal visibility-graph + A* router in
+`shared/layout/router.ts`.
 
 ## Detect
 
@@ -57,17 +58,19 @@ via the orthogonal visibility-graph + A* router in `shared/layout/router.ts`.
    post-processing), then nudge overlapping parallel segments.
 4. If an edge still clips a node (8px inflate), re-route again and retry detection.
 
-The editor toolbar shows a warning badge when conflicts exist, with a **Fix layout**
-action that applies resolve as a single undo entry. Auto-arrange, AI inserts, and
-MCP inserts run detect (and resolve when needed) after placement.
+The editor toolbar shows a warning badge when conflicts exist (edit mode only),
+with a **Fix layout** action that applies resolve as a single undo entry.
+User-caused overlaps are allowed and only surfaced via that badge. Card growth
+from longer titles must not move neighbours. Auto-arrange is explicit only.
 
 ## When it runs
 
-- After full ELK layout (`layoutDiagram`)
-- After incremental placement (`placeNodesIncremental`)
-- On demand from the toolbar badge
-- AI / agent / MCP paths call the same shared helpers after create and edit
-- On diagram open when `fitPending` / `layoutPending` is set (server or MCP layout):
-  after React Flow measures real card sizes, the editor auto-runs conflict resolve
-  (or a full relayout if needed) and saves, so the overlap badge never appears on a
-  fresh AI/MCP diagram
+- **Measure-resolve** only for a fresh `layoutPending` from AI/MCP (new diagram
+  generation). Never on a normal open of an existing diagram.
+- **Fix layout** (toolbar overlap badge) and **Auto-arrange** (including
+  Cmd+Shift+L) still run detect/resolve as a single undoable action.
+- **Incremental placement** (`placeNodesIncremental`) places new nodes only; it
+  must not shift existing user-placed nodes.
+- **Edges through nodes** never move nodes; the router re-routes the edge.
+- AI / agent / MCP create and edit call shared helpers for **new** node placement
+  (and for resolve only when `layoutPending` or the op explicitly requests layout).
