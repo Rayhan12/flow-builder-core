@@ -99,7 +99,7 @@ test.describe('Priority editor bugs', () => {
 
   test('bug5: guided rule builder with sentence preview', async ({ page }) => {
     await signUpAndOpenEditor(page, 'bug5')
-    await addKind(page, 'Rule')
+    await addKind(page, 'Rule set')
     await expect(page.getByTestId('rule-builder')).toBeVisible()
     await page.getByLabel('Condition 1 field').fill('credit score')
     await page.getByLabel('Condition 1 operator').selectOption('gt')
