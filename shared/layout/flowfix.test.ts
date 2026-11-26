@@ -12,6 +12,7 @@ import {
   defaultNodeSize,
 } from './index.ts'
 import { buildMerchantOnboardingFixture } from './merchantOnboardingFixture.ts'
+import { buildTeachAiDomainFixture } from './teachAiDomainFixture.ts'
 import type { LayoutEdgeLike, LayoutNodeLike } from './types.ts'
 
 function contentBox(node: LayoutNodeLike) {
@@ -230,6 +231,41 @@ describe('merchant onboarding stress layout', () => {
     const fixed = resolveConflicts(nodes, edges, { direction: 'DOWN' })
     const after = detectConflicts(fixed.nodes, fixed.edges)
     expect(after.nodeOverlaps).toHaveLength(0)
+  })
+})
+
+describe('TeachAI domain model layout', () => {
+  it('builds the 11-node fixture', () => {
+    const { nodes, edges } = buildTeachAiDomainFixture()
+    expect(nodes).toHaveLength(11)
+    expect(edges.length).toBeGreaterThanOrEqual(12)
+  })
+
+  it('layouts without shared buses; back edge clears cards', async () => {
+    const { nodes, edges } = buildTeachAiDomainFixture()
+    const result = await layoutDiagram(nodes, edges, { direction: 'DOWN' })
+    assertNoNodeOverlaps(result.nodes)
+    assertNoEdgeThroughNodes(result.nodes, result.edges)
+    assertNoSharedBuses(result.nodes, result.edges)
+
+    const back = result.edges.find((e) => e.id === 'e_results_generated')!
+    const points = pathPointsForEdge(back, result.nodes, (n) => defaultNodeSize(n), 'DOWN')
+    for (const blockId of ['assessments', 'attempts', 'grading', 'batches', 'banks']) {
+      const block = result.nodes.find((n) => n.id === blockId)!
+      const box = contentBox(block)
+      for (let i = 1; i < points.length; i += 1) {
+        const seg = {
+          x1: points[i - 1].x,
+          y1: points[i - 1].y,
+          x2: points[i].x,
+          y2: points[i].y,
+        }
+        expect(
+          segmentHitsRect(seg, box, 1),
+          `back edge through ${blockId}`,
+        ).toBe(false)
+      }
+    }
   })
 })
 

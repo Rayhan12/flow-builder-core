@@ -7,8 +7,6 @@ import { detectConflicts, resolveConflicts } from './conflicts.ts'
 import {
   extractElkBendPoints,
   routeEdgesIndependently,
-  separateSharedSegments,
-  type Point,
 } from './edgeRouting.ts'
 import {
   EDGE_EDGE_SPACING,
@@ -129,6 +127,132 @@ function extractWaypoints(edge: ElkExtendedEdge): LayoutWaypoint[] | undefined {
   return points.length ? points : undefined
 }
 
+/**
+ * When a node has parents in very different layers, ELK parks it after the
+ * deepest parent. Lift it under the shallow parent (beside that parent's other
+ * children) so the deep inbound edge routes as a side/back edge.
+ */
+function preferShallowParentLayers(
+  positions: Map<string, { x: number; y: number }>,
+  nodes: LayoutNodeLike[],
+  edges: LayoutEdgeLike[],
+  direction: LayoutDirection,
+  layerSpacing: number,
+): void {
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+  const incoming = new Map<string, string[]>()
+  for (const e of edges) {
+    const list = incoming.get(e.target) ?? []
+    list.push(e.source)
+    incoming.set(e.target, list)
+  }
+
+  for (const [id, parents] of incoming) {
+    if (parents.length < 2) continue
+    const pos = positions.get(id)
+    const node = byId.get(id)
+    if (!pos || !node) continue
+    const parentPos = parents
+      .map((p) => ({ id: p, pos: positions.get(p) }))
+      .filter((p): p is { id: string; pos: { x: number; y: number } } => !!p.pos)
+    if (parentPos.length < 2) continue
+
+    if (direction === 'DOWN') {
+      const shallowY = Math.min(...parentPos.map((p) => p.pos.y))
+      const deepY = Math.max(...parentPos.map((p) => p.pos.y))
+      if (deepY - shallowY < layerSpacing * 1.5) continue
+      if (pos.y < shallowY + layerSpacing * 2) continue
+
+      const shallowParents = parentPos.filter((p) => Math.abs(p.pos.y - shallowY) < 12).map((p) => p.id)
+      const siblingXs: number[] = []
+      let siblingY: number | null = null
+      for (const e of edges) {
+        if (!shallowParents.includes(e.source) || e.target === id) continue
+        const tp = positions.get(e.target)
+        if (!tp) continue
+        if (tp.y <= shallowY + 20 || tp.y >= deepY - layerSpacing) continue
+        siblingXs.push(tp.x)
+        siblingY = siblingY == null ? tp.y : Math.min(siblingY, tp.y)
+      }
+      const size = defaultNodeSize(node)
+      const targetY =
+        siblingY ??
+        shallowY + layerSpacing + (parentPos.find((p) => shallowParents.includes(p.id))?.pos
+          ? defaultNodeSize(byId.get(shallowParents[0]!)!).h
+          : 96)
+      let targetX = pos.x
+      if (siblingXs.length) {
+        const rightmost = Math.max(
+          ...siblingXs.map((x) => {
+            const sibId = edges.find(
+              (e) =>
+                shallowParents.includes(e.source) &&
+                e.target !== id &&
+                positions.get(e.target)?.x === x,
+            )?.target
+            const sib = sibId ? byId.get(sibId) : undefined
+            const sw = sib ? defaultNodeSize(sib).w : 256
+            return x + sw
+          }),
+        )
+        targetX = rightmost + NODE_NODE_SPACING
+      }
+      // Avoid overlapping an existing node at the lift target.
+      for (const other of nodes) {
+        if (other.id === id) continue
+        const op = positions.get(other.id)
+        if (!op) continue
+        const os = defaultNodeSize(other)
+        const overlap =
+          targetX < op.x + os.w + 8 &&
+          targetX + size.w + 8 > op.x &&
+          targetY < op.y + os.h + 8 &&
+          targetY + size.h + 8 > op.y
+        if (overlap) targetX = op.x + os.w + NODE_NODE_SPACING
+      }
+      positions.set(id, { x: targetX, y: targetY })
+    } else {
+      const shallowX = Math.min(...parentPos.map((p) => p.pos.x))
+      const deepX = Math.max(...parentPos.map((p) => p.pos.x))
+      if (deepX - shallowX < layerSpacing * 1.5) continue
+      if (pos.x < shallowX + layerSpacing * 2) continue
+      const shallowParents = parentPos.filter((p) => Math.abs(p.pos.x - shallowX) < 12).map((p) => p.id)
+      const siblingYs: number[] = []
+      let siblingX: number | null = null
+      for (const e of edges) {
+        if (!shallowParents.includes(e.source) || e.target === id) continue
+        const tp = positions.get(e.target)
+        if (!tp) continue
+        if (tp.x <= shallowX + 20 || tp.x >= deepX - layerSpacing) continue
+        siblingYs.push(tp.y)
+        siblingX = siblingX == null ? tp.x : Math.min(siblingX, tp.x)
+      }
+      const size = defaultNodeSize(node)
+      const targetX =
+        siblingX ??
+        shallowX + layerSpacing + defaultNodeSize(byId.get(shallowParents[0]!)!).w
+      let targetY = pos.y
+      if (siblingYs.length) {
+        const bottom = Math.max(...siblingYs.map((y) => y + 96))
+        targetY = bottom + NODE_NODE_SPACING
+      }
+      for (const other of nodes) {
+        if (other.id === id) continue
+        const op = positions.get(other.id)
+        if (!op) continue
+        const os = defaultNodeSize(other)
+        const overlap =
+          targetX < op.x + os.w + 8 &&
+          targetX + size.w + 8 > op.x &&
+          targetY < op.y + os.h + 8 &&
+          targetY + size.h + 8 > op.y
+        if (overlap) targetY = op.y + os.h + NODE_NODE_SPACING
+      }
+      positions.set(id, { x: targetX, y: targetY })
+    }
+  }
+}
+
 async function layoutFlatElk(
   nodes: LayoutNodeLike[],
   edges: LayoutEdgeLike[],
@@ -213,6 +337,11 @@ async function layoutFlatElk(
     positions.set(child.id, { x: child.x ?? 0, y: child.y ?? 0 })
   }
 
+  // Multi-parent nodes (Course->Generated and Results->Generated) otherwise sink
+  // to the deepest parent. Prefer the shallow parent layer so the late edge
+  // becomes a side/back route instead of a long vertical through the stack.
+  preferShallowParentLayers(positions, nodes, edges, direction, spacing.layer)
+
   const elkWaypoints = new Map<string, LayoutWaypoint[]>()
   for (const edge of (layouted.edges ?? []) as ElkExtendedEdge[]) {
     const pts = extractWaypoints(edge)
@@ -221,7 +350,6 @@ async function layoutFlatElk(
 
   // Ensure decision/switch branch targets follow chip order left→right (DOWN)
   // or top→bottom (RIGHT), even if ELK flipped a layer.
-  let reordered = false
   for (const n of nodes) {
     if (n.kind !== 'decision' && n.kind !== 'switch') continue
     const branches = branchesOf(n)
@@ -239,7 +367,6 @@ async function layoutFlatElk(
       const ordered = targets.slice().sort((a, b) => a.index - b.index)
       ordered.forEach((t, i) => {
         const pos = positions.get(t.id)!
-        if (pos.x !== sortedX[i]) reordered = true
         positions.set(t.id, { x: sortedX[i], y: pos.y })
       })
     } else {
@@ -247,13 +374,12 @@ async function layoutFlatElk(
       const ordered = targets.slice().sort((a, b) => a.index - b.index)
       ordered.forEach((t, i) => {
         const pos = positions.get(t.id)!
-        if (pos.y !== sortedY[i]) reordered = true
         positions.set(t.id, { x: pos.x, y: sortedY[i] })
       })
     }
   }
 
-  // After a branch-order fix, ELK bend points no longer match node positions.
+  // Branch-order fixes and shallow-parent lifts invalidate ELK bends.
   // Re-route every edge on its own channel. Legacy mode keeps raw ELK buses.
   if (legacy) {
     return { positions, waypoints: elkWaypoints }
@@ -264,57 +390,13 @@ async function layoutFlatElk(
     return pos ? { ...n, position: pos } : n
   })
 
-  if (reordered) {
-    const independent = routeEdgesIndependently(
-      placedNodes,
-      edges,
-      (n) => defaultNodeSize(n),
-      direction,
-    )
-    return { positions, waypoints: independent }
-  }
-
-  // Keep ELK bends but separate any leftover shared bus segments.
-  const forSeparate = edges.map((e) => {
-    const bends = elkWaypoints.get(e.id) ?? []
-    const src = placedNodes.find((n) => n.id === e.source)
-    const tgt = placedNodes.find((n) => n.id === e.target)
-    const sizeSrc = src ? defaultNodeSize(src) : { w: 200, h: 80 }
-    const sizeTgt = tgt ? defaultNodeSize(tgt) : { w: 200, h: 80 }
-    const start = src
-      ? {
-          x: src.position.x + sizeSrc.w / 2,
-          y: direction === 'DOWN' ? src.position.y + sizeSrc.h : src.position.y + sizeSrc.h / 2,
-        }
-      : { x: 0, y: 0 }
-    const end = tgt
-      ? {
-          x: tgt.position.x + sizeTgt.w / 2,
-          y: direction === 'DOWN' ? tgt.position.y : tgt.position.y + sizeTgt.h / 2,
-        }
-      : { x: 0, y: 0 }
-    const points: Point[] = [start, ...bends, end]
-    return {
-      id: e.id,
-      source: e.source,
-      sourceHandle: e.sourceHandle,
-      points,
-    }
-  })
-  const separated = separateSharedSegments(forSeparate, EDGE_EDGE_SPACING)
-  const waypoints = new Map<string, LayoutWaypoint[]>()
-  for (const e of edges) {
-    const full = separated.get(e.id)
-    if (!full || full.length < 2) {
-      const bends = elkWaypoints.get(e.id)
-      if (bends) waypoints.set(e.id, bends)
-      continue
-    }
-    // Drop estimated endpoints; FlowEdge uses React Flow handles.
-    const bends = full.slice(1, -1)
-    waypoints.set(e.id, bends)
-  }
-  return { positions, waypoints }
+  const independent = routeEdgesIndependently(
+    placedNodes,
+    edges,
+    (n) => defaultNodeSize(n),
+    direction,
+  )
+  return { positions, waypoints: independent }
 }
 
 function connectedIds(nodes: LayoutNodeLike[], edges: LayoutEdgeLike[]): Set<string> {

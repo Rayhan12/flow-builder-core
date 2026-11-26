@@ -147,45 +147,62 @@ export function separateSharedSegments(
     )
   }
 
-  for (let i = 0; i < edges.length; i += 1) {
-    for (let j = i + 1; j < edges.length; j += 1) {
-      const a = edges[i]
-      const b = edges[j]
-      // Same source handle may legitimately share a stub; different sources must not.
-      if (a.source === b.source && (a.sourceHandle ?? '') === (b.sourceHandle ?? '')) {
-        continue
-      }
-      const ptsA = result.get(a.id)!
-      const ptsB = result.get(b.id)!
-      const segsA = pointsToSegments(ptsA)
-      const segsB = pointsToSegments(ptsB)
-      for (let ai = 0; ai < segsA.length; ai += 1) {
-        for (let bi = 0; bi < segsB.length; bi += 1) {
-          const segA = segsA[ai]
-          const segB = segsB[bi]
-          const overlap = collinearOverlapLength(segA, segB)
-          if (overlap <= 4) continue
-          const horiz = nearlyEqual(segA.y1, segA.y2)
-          const offset = ((i + j) % 2 === 0 ? 1 : -1) * (gap / 2 + ((i + j) % 3) * (gap / 2))
-          if (horiz) {
-            // Nudge B's horizontal segment (and its endpoints in the polyline).
-            const y = segB.y1
-            for (const p of ptsB) {
-              if (nearlyEqual(p.y, y)) p.y += offset
-            }
-          } else {
-            const x = segB.x1
-            for (const p of ptsB) {
-              if (nearlyEqual(p.x, x)) p.x += offset
+  // Several passes: nudging one pair can create a new shared channel with a third edge.
+  for (let pass = 0; pass < 6; pass += 1) {
+    let moved = false
+    for (let i = 0; i < edges.length; i += 1) {
+      for (let j = i + 1; j < edges.length; j += 1) {
+        const a = edges[i]
+        const b = edges[j]
+        // Same source handle may legitimately share a stub; different sources must not.
+        if (a.source === b.source && (a.sourceHandle ?? '') === (b.sourceHandle ?? '')) {
+          continue
+        }
+        const ptsA = result.get(a.id)!
+        const ptsB = result.get(b.id)!
+        const segsA = pointsToSegments(ptsA)
+        const segsB = pointsToSegments(ptsB)
+        for (let ai = 0; ai < segsA.length; ai += 1) {
+          for (let bi = 0; bi < segsB.length; bi += 1) {
+            const segA = segsA[ai]
+            const segB = segsB[bi]
+            const overlap = collinearOverlapLength(segA, segB)
+            if (overlap <= 4) continue
+            const horiz = nearlyEqual(segA.y1, segA.y2)
+            const offset =
+              ((i + j + pass) % 2 === 0 ? 1 : -1) *
+              (gap / 2 + ((i + j + pass) % 3) * (gap / 2) + pass * (gap / 3))
+            if (horiz) {
+              // Nudge only the overlapping horizontal run (not the whole polyline).
+              const y = segB.y1
+              const minX = Math.min(segB.x1, segB.x2) - 0.5
+              const maxX = Math.max(segB.x1, segB.x2) + 0.5
+              for (const p of ptsB) {
+                if (nearlyEqual(p.y, y) && p.x >= minX && p.x <= maxX) {
+                  p.y += offset
+                  moved = true
+                }
+              }
+            } else {
+              const x = segB.x1
+              const minY = Math.min(segB.y1, segB.y2) - 0.5
+              const maxY = Math.max(segB.y1, segB.y2) + 0.5
+              for (const p of ptsB) {
+                if (nearlyEqual(p.x, x) && p.y >= minY && p.y <= maxY) {
+                  p.x += offset
+                  moved = true
+                }
+              }
             }
           }
         }
       }
     }
+    if (!moved) break
   }
 
   for (const [id, pts] of result) {
-    result.set(id, markRouted(pts))
+    result.set(id, markRouted(sanitizePolyline(pts)))
   }
   return result
 }
@@ -319,13 +336,13 @@ export function buildBackEdgeDetour(
     // Run the long horizontal below every obstacle so it cannot clip a sibling card.
     const highwayY = maxBottom + pad + 24
     const endX = end.x + approach
+    // Sideways onto the rail FIRST - never drop a vertical through the card stack.
     return markRouted(
       sanitizePolyline([
         { x: start.x, y: start.y + gap },
-        { x: start.x, y: highwayY },
+        { x: railX, y: start.y + gap },
         { x: railX, y: highwayY },
-        { x: railX, y: end.y - gap },
-        { x: endX, y: end.y - gap },
+        { x: endX, y: highwayY },
         { x: endX, y: end.y },
       ]),
     )
@@ -347,13 +364,13 @@ export function buildBackEdgeDetour(
   const railY = useBottom ? maxBottom + pad + 24 : minTop - pad - 24
   const highwayX = maxRight + pad + 24
   const endY = end.y + approach
+  // Onto the rail first so the long run never cuts through cards.
   return markRouted(
     sanitizePolyline([
       { x: start.x + gap, y: start.y },
-      { x: highwayX, y: start.y },
+      { x: start.x + gap, y: railY },
       { x: highwayX, y: railY },
-      { x: end.x - gap, y: railY },
-      { x: end.x - gap, y: endY },
+      { x: highwayX, y: endY },
       { x: end.x, y: endY },
     ]),
   )
@@ -532,7 +549,12 @@ export function routeEdgesIndependently(
       const end = estimateTargetPoint(tgt, sizeOf(tgt), undefined, direction)
       const obstacles = obstaclesForEdge(e, nodes, sizeOf)
       const reverse = isBackEdge(start, end, direction)
-      let bends = reverse
+      // Long forward spans (e.g. Course -> Generated when Generated sank) must
+      // side-route like back edges; a centre elbow punches through the stack.
+      const longSpan =
+        direction === 'DOWN' ? end.y - start.y > 280 : end.x - start.x > 280
+      const useSide = reverse || longSpan
+      let bends = useSide
         ? buildMildSideRoute(start, end, direction, obstacles, slot)
         : buildUniqueElbow(start, end, direction, slot)
       // Bump the channel until the polyline clears foreign node boxes.
@@ -541,7 +563,7 @@ export function routeEdgesIndependently(
         bump <= 12 && bendsHitObstacle(start, end, bends, obstacles);
         bump += 1
       ) {
-        bends = reverse
+        bends = useSide
           ? buildMildSideRoute(start, end, direction, obstacles, slot + bump * 2)
           : buildUniqueElbow(start, end, direction, slot + bump * 2)
       }
