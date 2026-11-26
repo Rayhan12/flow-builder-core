@@ -145,7 +145,7 @@ describe('DashboardPage', () => {
     const user = userEvent.setup()
     renderDashboard([alpha], onGenerate)
 
-    expect(screen.getByLabelText('Gemini API key')).toBeInTheDocument()
+    expect(screen.getByTestId('ai-missing-key')).toBeInTheDocument()
     await user.type(screen.getByLabelText('Describe the diagram'), 'Approve loans over 650')
     await user.click(screen.getByRole('button', { name: 'Create diagram' }))
 

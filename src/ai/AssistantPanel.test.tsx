@@ -39,8 +39,22 @@ vi.mock('../data/messages', () => ({
   markMessageApplied: vi.fn().mockResolvedValue(undefined),
 }))
 
+vi.mock('../ai/providers/probe', () => ({
+  listAndProbeModels: vi.fn().mockResolvedValue({
+    connectionId: 'x',
+    checkedAt: Date.now(),
+    models: [{ id: 'gemini-2.5-flash', usable: true, supportsTools: true, checkedAt: Date.now() }],
+  }),
+  recheckModel: vi.fn(),
+}))
+
 vi.mock('../data/settings', () => ({
   getUserSettings: vi.fn().mockResolvedValue({
+    theme: 'light',
+    aiProvider: 'gemini',
+    aiModel: 'gemini-2.5-flash',
+  }),
+  updateUserSettings: vi.fn().mockResolvedValue({
     theme: 'light',
     aiProvider: 'gemini',
     aiModel: 'gemini-2.5-flash',
@@ -93,10 +107,8 @@ describe('AssistantPanel', () => {
 
   it('shows a missing key card when no key is saved', async () => {
     renderPanel()
-    expect(
-      await screen.findByText(/Add your Gemini API key to use the assistant/i),
-    ).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /Open settings/i })).toHaveAttribute(
+    expect(await screen.findByTestId('ai-missing-key')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Open Settings/i })).toHaveAttribute(
       'href',
       '/settings',
     )
@@ -105,11 +117,11 @@ describe('AssistantPanel', () => {
   it('saves a key from the inline card', async () => {
     const user = userEvent.setup()
     renderPanel()
-    await screen.findByText(/Add your Gemini API key/i)
-    await user.type(screen.getByPlaceholderText(/Paste your Gemini API key/i), 'key-from-panel')
+    await screen.findByTestId('ai-missing-key')
+    await user.type(screen.getByPlaceholderText(/Paste your API key/i), 'key-from-panel')
     await user.click(screen.getByRole('button', { name: 'Save key' }))
     await waitFor(() => {
-      expect(screen.queryByText(/Add your Gemini API key/i)).not.toBeInTheDocument()
+      expect(screen.queryByTestId('ai-missing-key')).not.toBeInTheDocument()
     })
   })
 

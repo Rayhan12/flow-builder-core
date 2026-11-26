@@ -2,9 +2,6 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { forgetApiKey, getApiKey } from '../ai/keyStorage'
-import { ThemeProvider } from '../theme/ThemeProvider'
-import { SettingsPage } from './Settings'
 
 vi.mock('../auth/useAuth', () => ({
   useAuth: () => ({
@@ -24,7 +21,6 @@ vi.mock('../data/settings', () => ({
     aiProvider: 'gemini',
     aiModel: 'gemini-2.5-flash',
   },
-  GEMINI_MODELS: ['gemini-2.5-flash', 'gemini-2.5-pro'],
   getUserSettings: vi.fn().mockResolvedValue({
     theme: 'light',
     aiProvider: 'gemini',
@@ -37,45 +33,78 @@ vi.mock('../data/settings', () => ({
   })),
 }))
 
-function renderSettings() {
-  return render(
-    <ThemeProvider>
-      <MemoryRouter>
-        <SettingsPage />
-      </MemoryRouter>
-    </ThemeProvider>,
-  )
-}
+vi.mock('../ai/providers/probe', () => ({
+  listAndProbeModels: vi.fn().mockResolvedValue({
+    connectionId: 'x',
+    checkedAt: Date.now(),
+    models: [
+      {
+        id: 'gemini-2.5-flash',
+        usable: true,
+        supportsTools: true,
+        checkedAt: Date.now(),
+      },
+    ],
+  }),
+  recheckModel: vi.fn().mockResolvedValue({
+    id: 'gemini-2.5-flash',
+    usable: true,
+    supportsTools: true,
+    checkedAt: Date.now(),
+  }),
+}))
 
 describe('SettingsPage', () => {
   beforeEach(() => {
     localStorage.clear()
-    forgetApiKey('u1')
   })
 
-  it('saves an API key in the browser only', async () => {
-    const user = userEvent.setup()
-    renderSettings()
+  async function renderSettings() {
+    const { ThemeProvider } = await import('../theme/ThemeProvider')
+    const { SettingsPage } = await import('./Settings')
+    return render(
+      <ThemeProvider>
+        <MemoryRouter>
+          <SettingsPage />
+        </MemoryRouter>
+      </ThemeProvider>,
+    )
+  }
 
+  it('renders the AI providers section', async () => {
+    await renderSettings()
     await screen.findByRole('heading', { name: 'Settings' })
-    await user.type(screen.getByPlaceholderText(/Paste your Gemini API key/i), 'browser-only-key')
-    await user.click(screen.getByRole('button', { name: 'Save key' }))
+    expect(screen.getByTestId('ai-providers-settings')).toBeInTheDocument()
+    expect(screen.getByText(/Keys stay in this browser/i)).toBeInTheDocument()
+  })
+
+  it('saves an AI provider connection in the browser only', async () => {
+    const user = userEvent.setup()
+    const { getApiKey, hasApiKey } = await import('../ai/keyStorage')
+    const { listConnections } = await import('../ai/providers/connections')
+    const probe = await import('../ai/providers/probe')
+    await renderSettings()
+
+    await screen.findByTestId('ai-add-connection')
+    await user.type(screen.getByPlaceholderText(/^Paste API key$/i), 'browser-only-key')
+    await user.click(screen.getByRole('button', { name: 'Save connection' }))
 
     await waitFor(() => {
+      expect(listConnections('u1').length).toBeGreaterThan(0)
+      expect(hasApiKey('u1')).toBe(true)
       expect(getApiKey('u1')).toBe('browser-only-key')
     })
-    expect(screen.getByText(/saved in this browser/i)).toBeInTheDocument()
-    expect(screen.getByText(/Your key stays in this browser/i)).toBeInTheDocument()
+    expect(probe.listAndProbeModels).toHaveBeenCalled()
   })
 
-  it('forgets the key', async () => {
+  it('forgets a connection', async () => {
     const user = userEvent.setup()
-    const { setApiKey } = await import('../ai/keyStorage')
-    setApiKey('u1', 'to-forget')
-    renderSettings()
+    const { listConnections, upsertConnection } = await import('../ai/providers/connections')
+    upsertConnection('u1', { provider: 'gemini', label: 'Gemini', apiKey: 'to-forget' })
+    await renderSettings()
 
-    await screen.findByRole('button', { name: 'Forget key' })
-    await user.click(screen.getByRole('button', { name: 'Forget key' }))
-    expect(getApiKey('u1')).toBeNull()
+    await screen.findByRole('button', { name: 'Forget' })
+    await user.click(screen.getByRole('button', { name: 'Forget' }))
+    expect(listConnections('u1')).toHaveLength(0)
   })
 })

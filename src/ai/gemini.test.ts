@@ -14,6 +14,20 @@ describe('createGeminiProvider', () => {
   })
 
   it('lists known models', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          models: [
+            {
+              name: 'models/gemini-2.5-flash',
+              supportedGenerationMethods: ['generateContent'],
+            },
+          ],
+        }),
+      }),
+    )
     const provider = createGeminiProvider({ apiKey: 'test-key', model: 'gemini-2.5-flash' })
     const models = await provider.listModels()
     expect(models).toContain('gemini-2.5-flash')
@@ -44,8 +58,9 @@ describe('createGeminiProvider', () => {
     expect(fetchMock).toHaveBeenCalledOnce()
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect(url).toContain('gemini-2.5-flash')
-    expect(url).toContain('key=test-key')
     expect(init.method).toBe('POST')
+    const headers = init.headers as Record<string, string>
+    expect(headers['x-goog-api-key']).toBe('test-key')
     const body = JSON.parse(String(init.body)) as {
       generationConfig: { responseMimeType: string }
     }
@@ -58,7 +73,7 @@ describe('createGeminiProvider', () => {
       vi.fn().mockResolvedValue({
         ok: false,
         status: 400,
-        json: async () => ({ error: { message: 'API key not valid' } }),
+        text: async () => JSON.stringify({ error: { message: 'API key not valid' } }),
       }),
     )
 

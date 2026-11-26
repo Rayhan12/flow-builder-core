@@ -87,7 +87,8 @@ describe('generateWithTools', () => {
     ])
 
     expect(calls).toHaveLength(3)
-    expect(calls[0].url).toContain('gemini-2.5-flash:generateContent?key=k')
+    expect(calls[0].url).toContain('gemini-2.5-flash:generateContent')
+    expect(calls[0].url).not.toContain('?key=')
     expect(calls[0].body.tools[0].functionDeclarations).toHaveLength(MCP_TOOL_NAMES.length)
     expect(calls[0].body.systemInstruction.parts[0].text).toBe('sys')
     expect(calls[0].body.contents.map((c: { role: string }) => c.role)).toEqual(['user', 'user'])

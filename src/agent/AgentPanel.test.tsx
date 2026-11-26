@@ -29,6 +29,20 @@ vi.mock('../data/settings', () => ({
     aiProvider: 'gemini',
     aiModel: 'gemini-2.5-flash',
   }),
+  updateUserSettings: vi.fn().mockResolvedValue({
+    theme: 'light',
+    aiProvider: 'gemini',
+    aiModel: 'gemini-2.5-flash',
+  }),
+}))
+
+vi.mock('../ai/providers/probe', () => ({
+  listAndProbeModels: vi.fn().mockResolvedValue({
+    connectionId: 'x',
+    checkedAt: Date.now(),
+    models: [{ id: 'gemini-2.5-flash', usable: true, supportsTools: true, checkedAt: Date.now() }],
+  }),
+  recheckModel: vi.fn(),
 }))
 
 const chats = vi.hoisted(() => ({
@@ -102,15 +116,15 @@ describe('AgentPanel', () => {
     const user = userEvent.setup()
     renderPanel()
 
-    expect(screen.getByText(/add your gemini api key/i)).toBeInTheDocument()
+    expect(screen.getByTestId('ai-missing-key')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /open settings/i })).toHaveAttribute('href', '/settings')
     expect(screen.getByLabelText('Message')).toBeDisabled()
 
-    await user.type(screen.getByLabelText('API key'), 'secret-key')
+    await user.type(screen.getByPlaceholderText(/Paste your API key/i), 'secret-key')
     await user.click(screen.getByRole('button', { name: /save key/i }))
 
     await waitFor(() => expect(screen.getByLabelText('Message')).toBeEnabled())
-    expect(screen.queryByText(/add your gemini api key/i)).not.toBeInTheDocument()
+    expect(screen.queryByTestId('ai-missing-key')).not.toBeInTheDocument()
   })
 
   it('runs a prompt, shows a tool call card with an Open link and saves the chat', async () => {
@@ -164,10 +178,10 @@ describe('AgentPanel', () => {
     const generate = vi.fn(createFlowGenerate())
     renderPanel({ generate, initialPrompt: 'Build a KYC flow' })
 
-    await screen.findByText(/add your gemini api key/i)
+    await screen.findByTestId('ai-missing-key')
     expect(generate).not.toHaveBeenCalled()
 
-    await user.type(screen.getByLabelText('API key'), 'secret-key')
+    await user.type(screen.getByPlaceholderText(/Paste your API key/i), 'secret-key')
     await user.click(screen.getByRole('button', { name: /save key/i }))
 
     expect(await screen.findByText('I created the Refund flow.')).toBeInTheDocument()
