@@ -34,7 +34,10 @@ export function defaultNodeSize(node: DiagramNode): { w: number; h: number } {
     }
   }
   if (node.kind === 'decision') {
-    return decisionSizeForBranches(node.data.branches.length)
+    return decisionSizeForBranches(
+      node.data.branches.length,
+      node.data.branches.map((b) => b.label),
+    )
   }
   if (node.kind === 'sticky') {
     return { w: 192, h: 160 }
@@ -49,7 +52,10 @@ export function defaultNodeSize(node: DiagramNode): { w: number; h: number } {
     return { w: 176, h: 64 }
   }
   if (node.kind === 'switch') {
-    return decisionSizeForBranches(node.data.branches.length)
+    return decisionSizeForBranches(
+      node.data.branches.length,
+      node.data.branches.map((b) => b.label),
+    )
   }
   return { w: DEFAULT_NODE_WIDTH, h: DEFAULT_NODE_HEIGHT }
 }

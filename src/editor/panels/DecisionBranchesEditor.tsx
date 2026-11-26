@@ -33,7 +33,10 @@ export function DecisionBranchesEditor({ node, edges, onChange, onRemoveEdges }:
   } | null>(null)
 
   function commit(data: DecisionNode['data']) {
-    const size = decisionSizeForBranches(data.branches.length)
+    const size = decisionSizeForBranches(
+      data.branches.length,
+      data.branches.map((b) => b.label),
+    )
     onChange({ ...node, data, size })
   }
 
