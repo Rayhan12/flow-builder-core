@@ -1,11 +1,18 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { upsertConnection } from '../providers/connections'
+import { formatRelative } from '../../lib/format'
+import { listConnections, saveConnectionWithFingerprint } from '../providers/connections'
+import {
+  reasonLabel,
+  saveModelCache,
+} from '../providers/modelCache'
 import { listAndProbeModels } from '../providers/probe'
 import { setSelectedModel } from '../providers/selectedModel'
 import {
   CUSTOM_PRESETS,
   PROVIDER_META,
+  type CachedModelStatus,
+  type ConnectionModelCache,
   type ProviderId,
 } from '../providers/types'
 
@@ -28,6 +35,11 @@ export function MissingKeyCard({ uid, onReady, compact }: MissingKeyCardProps) {
   const [keyDraft, setKeyDraft] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [progress, setProgress] = useState<string | null>(null)
+  const [cache, setCache] = useState<ConnectionModelCache | null>(null)
+  const [enabled, setEnabled] = useState<string[]>([])
+  const [connId, setConnId] = useState<string | null>(null)
+  const [connProvider, setConnProvider] = useState<ProviderId | null>(null)
 
   const meta = provider === 'custom' ? null : PROVIDER_META[provider]
   const ollama = CUSTOM_PRESETS.find((p) => p.id === 'ollama')
@@ -36,8 +48,9 @@ export function MissingKeyCard({ uid, onReady, compact }: MissingKeyCardProps) {
     if (saving) return
     setSaving(true)
     setError(null)
+    setProgress('Fetching models...')
     try {
-      const conn = upsertConnection(uid, {
+      const conn = await saveConnectionWithFingerprint(uid, {
         provider,
         label: meta?.label ?? 'Custom',
         apiKey: keyDraft,
@@ -45,20 +58,101 @@ export function MissingKeyCard({ uid, onReady, compact }: MissingKeyCardProps) {
           ? { baseUrl: ollama?.baseUrl, preset: 'ollama' as const }
           : {}),
       })
-      setSelectedModel(uid, {
-        connectionId: conn.id,
-        provider: conn.provider,
-        model: meta?.defaultModel ?? '',
+      setConnId(conn.id)
+      setConnProvider(conn.provider)
+      const result = await listAndProbeModels(uid, conn, {
+        mode: 'initial',
+        onProgress: (done, total) => setProgress(`Checking models ${done}/${total}`),
       })
-      // Probe in the background; UI can proceed once the key is saved.
-      void listAndProbeModels(uid, conn).catch(() => undefined)
+      setCache(result)
+      setEnabled([...result.enabledModelIds])
+      setProgress(null)
       setKeyDraft('')
-      onReady()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save key')
+      setProgress(null)
     } finally {
       setSaving(false)
     }
+  }
+
+  function toggle(model: CachedModelStatus, checked: boolean) {
+    if (!model.usable) return
+    setEnabled((prev) => {
+      const set = new Set(prev)
+      if (checked) set.add(model.id)
+      else set.delete(model.id)
+      return [...set]
+    })
+  }
+
+  function saveEnabledAndContinue() {
+    if (!cache || !connId || !connProvider) return
+    const usable = new Set(cache.models.filter((m) => m.usable).map((m) => m.id))
+    const enabledModelIds = enabled.filter((id) => usable.has(id))
+    const next = { ...cache, enabledModelIds }
+    saveModelCache(uid, next)
+    const first = next.models.find((m) => enabledModelIds.includes(m.id))
+    if (first) {
+      setSelectedModel(uid, {
+        connectionId: connId,
+        provider: connProvider,
+        model: first.id,
+      })
+    }
+    // Touch listConnections so fingerprint stays attached on the connection record.
+    void listConnections(uid)
+    onReady()
+  }
+
+  if (cache) {
+    return (
+      <div className={`ai-key-card${compact ? ' is-compact' : ''}`} data-testid="ai-missing-key">
+        <p className="ai-key-card-title">Choose models to enable</p>
+        <p className="ai-key-card-hint">
+          Usable models that support tools are pre-selected. Unusable models cannot be enabled.
+          {cache.lastCheckedAt
+            ? ` Last checked ${formatRelative(new Date(cache.lastCheckedAt))}.`
+            : ''}
+        </p>
+        <ul className="ai-conn-models" data-testid="ai-model-list">
+          {cache.models.map((m) => (
+            <li key={m.id} data-testid={`ai-model-row-${m.id}`}>
+              <label className="ai-conn-model-check">
+                <input
+                  type="checkbox"
+                  checked={enabled.includes(m.id)}
+                  disabled={!m.usable}
+                  onChange={(e) => toggle(m, e.target.checked)}
+                  aria-label={`Enable ${m.id}`}
+                />
+                <span>
+                  {m.id}
+                  {m.supportsTools ? <span className="ai-model-tools-badge">Tools</span> : null}
+                </span>
+              </label>
+              <span className="ai-conn-model-status">
+                {m.usable ? 'Usable' : reasonLabel(m.reason)}
+              </span>
+            </li>
+          ))}
+        </ul>
+        <div className="ai-key-actions">
+          <button
+            type="button"
+            className="btn btn-primary"
+            data-testid="ai-save-enabled"
+            disabled={enabled.length === 0}
+            onClick={() => saveEnabledAndContinue()}
+          >
+            Save enabled
+          </button>
+          <Link to="/settings" className="settings-link">
+            Open Settings
+          </Link>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -114,6 +208,11 @@ export function MissingKeyCard({ uid, onReady, compact }: MissingKeyCardProps) {
             {error}
           </p>
         ) : null}
+        {progress ? (
+          <p className="settings-key-status" role="status" data-testid="ai-probe-progress">
+            {progress}
+          </p>
+        ) : null}
         <div className="ai-key-actions">
           <button
             type="button"
@@ -121,7 +220,7 @@ export function MissingKeyCard({ uid, onReady, compact }: MissingKeyCardProps) {
             disabled={saving || (provider !== 'custom' && !keyDraft.trim())}
             onClick={() => void onSave()}
           >
-            {saving ? 'Saving...' : 'Save key'}
+            {saving ? 'Checking models...' : 'Save key'}
           </button>
           <Link to="/settings" className="settings-link">
             Open Settings

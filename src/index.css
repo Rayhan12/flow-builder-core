@@ -5047,14 +5047,41 @@ kbd {
   gap: 12px;
 }
 
+.ai-conn-model-panel {
+  margin-top: 10px;
+}
+
+.ai-conn-model-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.ai-conn-model-search {
+  flex: 1 1 140px;
+  min-width: 120px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  font-size: var(--text-sm);
+}
+
 .ai-conn-models {
   list-style: none;
-  margin: 10px 0 0;
+  margin: 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 0;
   font-size: var(--text-sm);
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
 }
 
 .ai-conn-models li {
@@ -5062,8 +5089,25 @@ kbd {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 4px 0;
+  padding: 4px 8px;
+  min-height: 28px;
   border-top: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+}
+
+.ai-conn-models li:first-child {
+  border-top: none;
+}
+
+.ai-conn-model-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.ai-conn-model-check input:disabled {
+  cursor: not-allowed;
 }
 
 .ai-conn-model-status {
@@ -5072,6 +5116,20 @@ kbd {
   gap: 6px;
   color: var(--color-text-3);
   white-space: nowrap;
+}
+
+.ai-model-new-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--color-accent, #0f766e);
+  border: 1px solid color-mix(in srgb, var(--color-accent, #0f766e) 40%, transparent);
+  border-radius: 3px;
+  vertical-align: middle;
 }
 
 .ai-conn-add-title {
