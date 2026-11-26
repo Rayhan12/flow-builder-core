@@ -96,6 +96,11 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* Smooth Auto-arrange transitions (toggled for ~300ms around layout). */
+body.is-layout-animating .react-flow__node {
+  transition: transform 280ms ease;
+}
+
 h1,
 h2,
 h3 {

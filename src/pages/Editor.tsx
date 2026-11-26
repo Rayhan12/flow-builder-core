@@ -50,7 +50,7 @@ import {
   parseImportedJson,
 } from '../editor/importExport'
 import { isEditableKeyboardTarget } from '../editor/keyboard'
-import { autoLayoutDiagram, type LayoutDirection } from '../editor/layout'
+import { layoutDiagram, type LayoutDirection } from '../editor/layout'
 import { CommandPalette, type CommandPaletteResult } from '../editor/CommandPalette'
 import { NodePalette } from '../editor/palette/NodePalette'
 import { LayersPanel } from '../editor/panels/LayersPanel'
@@ -96,6 +96,29 @@ function saveLabel(status: string, error: string | null): string {
   if (status === 'dirty') return 'Unsaved changes'
   if (status === 'error') return error ?? 'Save failed'
   return ''
+}
+
+/** Rough check: any node sits far outside a typical first viewport. */
+function nodesPartlyOffScreen(
+  nodes: Array<{ position: { x: number; y: number }; size?: { w: number; h: number } }>,
+): boolean {
+  if (nodes.length === 0) return false
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const n of nodes) {
+    const w = n.size?.w ?? 256
+    const h = n.size?.h ?? 96
+    minX = Math.min(minX, n.position.x)
+    minY = Math.min(minY, n.position.y)
+    maxX = Math.max(maxX, n.position.x + w)
+    maxY = Math.max(maxY, n.position.y + h)
+  }
+  const spanX = maxX - minX
+  const spanY = maxY - minY
+  // Larger than ~1400x800 at zoom 1, or origin far from 0.
+  return spanX > 1600 || spanY > 1000 || minX < -200 || minY < -200
 }
 
 export function EditorPage() {
@@ -280,15 +303,30 @@ function EditorInner() {
           setLoading(false)
           return
         }
-        load(
-          {
-            id: record.id,
-            ...record.doc,
-          },
-          record.revision,
-        )
+        const doc = {
+          id: record.id,
+          ...record.doc,
+        }
+        load(doc, record.revision)
         setTitleDraft(record.title)
         setLoading(false)
+        const needsFit =
+          record.doc.fitPending === true ||
+          record.doc.layoutPending === true ||
+          nodesPartlyOffScreen(record.doc.nodes)
+        if (needsFit) {
+          requestAnimationFrame(() => {
+            void fitView({ padding: 0.2, duration: 280 })
+            useEditorStore.setState((s) => {
+              if (!s.diagram) return s
+              if (!s.diagram.fitPending && !s.diagram.layoutPending) return s
+              return {
+                diagram: { ...s.diagram, fitPending: false, layoutPending: false },
+                saveStatus: 'dirty' as const,
+              }
+            })
+          })
+        }
       } catch (err) {
         if (cancelled) return
         setLoadError(err instanceof Error ? err.message : 'Could not open diagram')
@@ -300,7 +338,22 @@ function EditorInner() {
       cancelled = true
       reset()
     }
-  }, [uid, projectId, diagramId, load, reset])
+  }, [uid, projectId, diagramId, load, reset, fitView])
+
+  // After AI/MCP edits set fitPending, zoom to fit once.
+  useEffect(() => {
+    if (!diagram?.fitPending) return
+    requestAnimationFrame(() => {
+      void fitView({ padding: 0.2, duration: 280 })
+      useEditorStore.setState((s) => {
+        if (!s.diagram?.fitPending && !s.diagram?.layoutPending) return s
+        return {
+          diagram: { ...s.diagram!, fitPending: false, layoutPending: false },
+          saveStatus: 'dirty' as const,
+        }
+      })
+    })
+  }, [diagram?.fitPending, fitView])
 
   const persist = useCallback(async () => {
     const state = useEditorStore.getState()
@@ -332,6 +385,34 @@ function EditorInner() {
     }, AUTOSAVE_MS)
     return () => window.clearTimeout(timer)
   }, [saveStatus, diagram, persist])
+
+  const runLayout = useCallback(
+    async (direction: LayoutDirection = 'DOWN') => {
+      const state = useEditorStore.getState()
+      const current = state.diagram
+      if (!current || layoutBusy) return
+      setLayoutBusy(true)
+      setIoError(null)
+      try {
+        document.body.classList.add('is-layout-animating')
+        const selected = state.selectedNodeIds
+        const options =
+          selected.length >= 2
+            ? { direction, nodeIds: selected }
+            : { direction }
+        const laid = await layoutDiagram(current.nodes, current.edges, options)
+        applyNodeLayout(laid.nodes, laid.edges)
+        requestAnimationFrame(() => fitView({ padding: 0.2, duration: 280 }))
+      } catch (err) {
+        setIoError(err instanceof Error ? err.message : 'Layout failed')
+      } finally {
+        window.setTimeout(() => document.body.classList.remove('is-layout-animating'), 320)
+        setLayoutBusy(false)
+      }
+    },
+    [applyNodeLayout, fitView, layoutBusy],
+  )
+
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -469,6 +550,9 @@ function EditorInner() {
         if (selectedNodeIds.length) toggleHidden(selectedNodeIds)
       } else if (key === 'l' && e.shiftKey && !typing) {
         e.preventDefault()
+        void runLayout('DOWN')
+      } else if (key === 'l' && e.altKey && !typing) {
+        e.preventDefault()
         if (selectedNodeIds.length) toggleLocked(selectedNodeIds)
       } else if (key === ']' && !typing) {
         e.preventDefault()
@@ -510,6 +594,7 @@ function EditorInner() {
     zoomToSelection,
     setZoomLevel,
     tool,
+    runLayout,
   ])
 
   const onAddKind = useCallback(
@@ -546,25 +631,6 @@ function EditorInner() {
       addNode(payload.kind, position, payload.shape ? { shape: payload.shape } : undefined)
     },
     [addNode],
-  )
-
-  const runLayout = useCallback(
-    async (direction: LayoutDirection = 'DOWN') => {
-      const current = useEditorStore.getState().diagram
-      if (!current || layoutBusy) return
-      setLayoutBusy(true)
-      setIoError(null)
-      try {
-        const laidOut = await autoLayoutDiagram(current.nodes, current.edges, direction)
-        applyNodeLayout(laidOut)
-        requestAnimationFrame(() => fitView({ padding: 0.2, duration: 200 }))
-      } catch (err) {
-        setIoError(err instanceof Error ? err.message : 'Layout failed')
-      } finally {
-        setLayoutBusy(false)
-      }
-    },
-    [applyNodeLayout, fitView, layoutBusy],
   )
 
   const onExport = useCallback(() => {
@@ -620,6 +686,12 @@ function EditorInner() {
       { id: 'distribute-h', label: 'Distribute horizontally', hint: 'Arrange' },
       { id: 'distribute-v', label: 'Distribute vertically', hint: 'Arrange' },
       { id: 'tidy', label: 'Tidy up', hint: 'Arrange' },
+      {
+        id: 'auto-arrange',
+        label: 'Auto-arrange',
+        hint: 'Arrange',
+        keywords: 'layout elk cmd shift l',
+      },
       { id: 'select-all', label: 'Select all', hint: 'Selection' },
       { id: 'delete', label: 'Delete selection', hint: 'Edit', keywords: 'remove' },
       { id: 'shortcuts', label: 'Keyboard shortcuts', hint: 'Help', keywords: 'shift ?' },
@@ -703,6 +775,9 @@ function EditorInner() {
         case 'tidy':
           tidySelection()
           break
+        case 'auto-arrange':
+          void runLayout('DOWN')
+          break
         case 'select-all':
           selectAll()
           break
@@ -736,8 +811,17 @@ function EditorInner() {
       tidySelection,
       selectAll,
       removeNodes,
+      runLayout,
     ],
   )
+
+  useEffect(() => {
+    function onAutoArrange() {
+      void runLayout('DOWN')
+    }
+    window.addEventListener('flow-builder:auto-arrange', onAutoArrange)
+    return () => window.removeEventListener('flow-builder:auto-arrange', onAutoArrange)
+  }, [runLayout])
 
   if (loading) {
     return <div className="page-loading">Opening diagram...</div>
@@ -921,8 +1005,9 @@ function EditorInner() {
             <button
               type="button"
               className="btn btn-ghost btn-icon"
-              aria-label="Auto layout"
-              title="Auto layout"
+              aria-label="Auto-arrange"
+              title="Auto-arrange (Ctrl/Cmd+Shift+L)"
+              data-testid="auto-arrange"
               disabled={layoutBusy || diagram.nodes.length === 0}
               onClick={() => void runLayout('DOWN')}
             >
@@ -1207,7 +1292,10 @@ function EditorInner() {
                 <kbd>Ctrl/Cmd</kbd>+<kbd>Shift</kbd>+<kbd>H</kbd> Hide / show
               </li>
               <li>
-                <kbd>Ctrl/Cmd</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> Lock / unlock
+                <kbd>Ctrl/Cmd</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> Auto-arrange
+              </li>
+              <li>
+                <kbd>Ctrl/Cmd</kbd>+<kbd>Alt</kbd>+<kbd>L</kbd> Lock / unlock
               </li>
               <li>
                 <kbd>Ctrl/Cmd</kbd>+<kbd>]</kbd> / <kbd>[</kbd> Bring forward / send backward

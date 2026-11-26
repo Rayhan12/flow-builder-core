@@ -1082,6 +1082,18 @@ export function Canvas({
                 type="button"
                 role="menuitem"
                 className="canvas-context-item"
+                data-testid="context-auto-arrange"
+                onClick={() => {
+                  window.dispatchEvent(new CustomEvent('flow-builder:auto-arrange'))
+                  setContextMenu(null)
+                }}
+              >
+                Auto-arrange
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="canvas-context-item"
                 onClick={() => {
                   toggleLocked(contextMenu.nodeIds)
                   setContextMenu(null)

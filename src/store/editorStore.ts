@@ -18,6 +18,7 @@ import {
 import { GRID_SIZE, nodeBox } from '../editor/alignment'
 import { absolutePosition } from '../editor/flowTypes'
 import { createNodeOfKind, newEdgeId, newNodeId } from '../editor/kinds'
+import { placeNodesIncremental } from '../editor/layout'
 import type { SideHandleId } from '../editor/nodes/sideIds'
 import { applyZOrder, type ZOrderAction } from '../editor/zOrder'
 
@@ -95,7 +96,7 @@ type EditorState = {
     parentId: string | undefined,
     absolutePosition: { x: number; y: number },
   ) => void
-  applyNodeLayout: (nodes: DiagramNode[]) => void
+  applyNodeLayout: (nodes: DiagramNode[], edges?: DiagramEdge[]) => void
   replaceDiagramContent: (diagram: Diagram) => void
 
   addEdgeFromConnection: (conn: {
@@ -406,7 +407,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           ...d,
           nodes: d.nodes.map((n) => {
             const pos = map.get(n.id)
-            return pos ? { ...n, position: pos } : n
+            return pos ? { ...n, position: pos, manuallyPositioned: true } : n
           }),
         }),
         { record: recordHistory },
@@ -500,11 +501,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       }),
     ),
 
-  applyNodeLayout: (nodes) =>
+  applyNodeLayout: (nodes, edges) =>
     set((state) =>
       withHistory(state, (d) => ({
         ...d,
         nodes: structuredClone(nodes),
+        edges: edges ? structuredClone(edges) : d.edges,
+        layoutPending: false,
+        fitPending: false,
       })),
     ),
 
@@ -607,7 +611,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           targetHandle: off.target,
           type: 'elbow',
         }
-        return { ...d, nodes: [...d.nodes, node], edges: [...d.edges, edge] }
+        const draftNodes = [...d.nodes, node]
+        const draftEdges = [...d.edges, edge]
+        const direction = side === 'left' || side === 'right' ? 'RIGHT' : 'DOWN'
+        const laid = placeNodesIncremental(draftNodes, draftEdges, [node.id], direction)
+        return { ...d, nodes: laid.nodes, edges: laid.edges }
       }),
     )
     if (createdId) {
