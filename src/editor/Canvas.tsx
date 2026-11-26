@@ -29,6 +29,16 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from 'react'
+import {
+  defaultNodeSize,
+  handleEnterDir,
+  handleLeaveDir,
+  routeEdgesIndependently,
+  routeOrthogonal,
+  roundedOrthogonalPath,
+  EDGE_COLOR,
+  EDGE_STROKE,
+} from '../../shared/layout/index.ts'
 import { EmptyState } from '../components/EmptyState'
 import { isContainerKind, type DiagramNode } from '../schema'
 import { useEditorStore } from '../store/editorStore'
@@ -68,6 +78,45 @@ import { SelectionToolbar } from './SelectionToolbar'
 import { sortNodesForCanvas } from './zOrder'
 
 import '@xyflow/react/dist/style.css'
+
+/** Handle-drag connection preview: same orthogonal router + stroke as real edges. */
+function ConnectPreviewLine({
+  fromX,
+  fromY,
+  toX,
+  toY,
+}: {
+  fromX: number
+  fromY: number
+  toX: number
+  toY: number
+}) {
+  const d = useMemo(() => {
+    const pts = routeOrthogonal(
+      { x: fromX, y: fromY },
+      { x: toX, y: toY },
+      'S',
+      'N',
+      [],
+      [],
+      { slot: 0, clearance: 8 },
+    )
+    return roundedOrthogonalPath(pts)
+  }, [fromX, fromY, toX, toY])
+  return (
+    <g className="connect-preview-handle-line" data-testid="connection-preview-line">
+      <path
+        fill="none"
+        stroke={EDGE_COLOR}
+        strokeWidth={EDGE_STROKE}
+        strokeDasharray="4 4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d={d}
+      />
+    </g>
+  )
+}
 
 export type CanvasTool = 'select' | 'connect'
 
@@ -575,13 +624,45 @@ export function Canvas({
           true,
         )
         clearGuides()
+        // Full obstacle-avoiding re-route after drag; live preview used smooth elbows.
+        const d = useEditorStore.getState().diagram
+        if (d) {
+          const routed = routeEdgesIndependently(
+            d.nodes,
+            d.edges,
+            (n) => defaultNodeSize(n),
+            'DOWN',
+          )
+          const nextEdges = d.edges.map((e) => {
+            const pts = routed.get(e.id)
+            return pts ? { ...e, waypoints: pts } : e
+          })
+          useEditorStore.getState().applyNodeLayout(d.nodes, nextEdges)
+        }
       }
 
       for (const change of changes.getByType('dimensions')) {
         if (!change.dimensions) continue
         const { width, height } = change.dimensions
         if (width <= 0 || height <= 0) continue
-        resizeNode(change.id, { w: width, h: height }, change.resizing !== true)
+        const settling = change.resizing !== true
+        resizeNode(change.id, { w: width, h: height }, settling)
+        if (settling) {
+          const d = useEditorStore.getState().diagram
+          if (d) {
+            const routed = routeEdgesIndependently(
+              d.nodes,
+              d.edges,
+              (n) => defaultNodeSize(n),
+              'DOWN',
+            )
+            const nextEdges = d.edges.map((e) => {
+              const pts = routed.get(e.id)
+              return pts ? { ...e, waypoints: pts } : e
+            })
+            useEditorStore.getState().applyNodeLayout(d.nodes, nextEdges)
+          }
+        }
       }
     },
     [moveNodes, removeNodes, resizeNode, altHeld, clearGuides, viewOnly, connectMode],
@@ -1098,6 +1179,34 @@ export function Canvas({
     return { x: box.left + box.width / 2, y: box.top + box.height }
   }, [connectMode, connectFromId, connectFromHandle, connectPreviewPt, diagramNodes])
 
+  const connectPreviewPath = useMemo(() => {
+    if (!connectPreviewStart || !connectPreviewPt || !diagramNodes) return ''
+    const obstacles = diagramNodes
+      .filter((n) => n.id !== connectFromId && !isContainerKind(n.kind) && !n.hidden)
+      .map((n) => {
+        const b = nodeBox(n, diagramNodes)
+        return { x: b.left, y: b.top, w: b.width, h: b.height }
+      })
+    const leave = handleLeaveDir(connectFromHandle ?? undefined, 'step', 'DOWN')
+    const enter = handleEnterDir(undefined, 'DOWN')
+    const pts = routeOrthogonal(
+      connectPreviewStart,
+      connectPreviewPt,
+      leave,
+      enter,
+      obstacles,
+      [],
+      { slot: 0 },
+    )
+    return roundedOrthogonalPath(pts)
+  }, [
+    connectPreviewStart,
+    connectPreviewPt,
+    diagramNodes,
+    connectFromId,
+    connectFromHandle,
+  ])
+
   if (!diagram) return null
 
   return (
@@ -1186,11 +1295,12 @@ export function Canvas({
         edgesReconnectable={!viewOnly}
         connectionMode={ConnectionMode.Loose}
         connectionRadius={36}
-        connectionLineStyle={{ stroke: 'var(--color-accent)', strokeWidth: 2 }}
+        connectionLineStyle={{ stroke: EDGE_COLOR, strokeWidth: EDGE_STROKE }}
+        connectionLineComponent={ConnectPreviewLine}
         proOptions={{ hideAttribution: true }}
         defaultEdgeOptions={{
           type: 'flow',
-          markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14, color: '#8b8d98' },
+          markerEnd: { type: MarkerType.ArrowClosed, width: 8, height: 8, color: EDGE_COLOR },
         }}
         className={[
           spaceHeld ? 'is-panning' : '',
@@ -1293,15 +1403,14 @@ export function Canvas({
                 height: 1,
               }}
             >
-              <line
-                x1={connectPreviewStart.x}
-                y1={connectPreviewStart.y}
-                x2={connectPreviewPt.x}
-                y2={connectPreviewPt.y}
+              <path
+                d={connectPreviewPath}
+                fill="none"
                 stroke="var(--color-accent)"
-                strokeWidth={2}
-                strokeDasharray="6 4"
+                strokeWidth={EDGE_STROKE}
+                strokeDasharray="4 4"
                 strokeLinecap="round"
+                strokeLinejoin="round"
               />
               <circle
                 cx={connectPreviewStart.x}
@@ -1309,6 +1418,16 @@ export function Canvas({
                 r={4}
                 fill="var(--color-accent)"
               />
+              {connectTargetId ? (
+                <circle
+                  cx={connectPreviewPt.x}
+                  cy={connectPreviewPt.y}
+                  r={6}
+                  fill="none"
+                  stroke="var(--color-accent)"
+                  strokeWidth={2}
+                />
+              ) : null}
             </svg>
           </ViewportPortal>
         ) : null}

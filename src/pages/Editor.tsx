@@ -436,15 +436,37 @@ function EditorInner() {
             applyNodeLayout(fixed.nodes, fixed.edges)
           }
           // Cards may grow once more after the first pass; wait and clear leftovers.
-          await new Promise((r) => window.setTimeout(r, 200))
+          await new Promise((r) => window.setTimeout(r, 280))
           if (!cancelled) {
-            const mid = useEditorStore.getState().diagram
-            if (mid) {
+            let mid = useEditorStore.getState().diagram
+            for (let pass = 0; mid && pass < 4; pass += 1) {
               const still = detectConflicts(mid.nodes, mid.edges, { direction: 'DOWN' })
-              if (still.nodeOverlaps.length > 0 || still.edgesThroughNodes.length > 0) {
-                const again = resolveConflicts(mid.nodes, mid.edges, { direction: 'DOWN' })
+              if (still.nodeOverlaps.length === 0 && still.edgesThroughNodes.length === 0) {
+                break
+              }
+              if (pass === 2) {
+                // Full relayout with measured sizes when push-apart is not enough.
+                try {
+                  const laid = await layoutDiagram(mid.nodes, mid.edges, {
+                    direction: 'DOWN',
+                  })
+                  applyNodeLayout(laid.nodes, laid.edges)
+                } catch {
+                  const again = resolveConflicts(mid.nodes, mid.edges, {
+                    direction: 'DOWN',
+                    maxPasses: 20,
+                  })
+                  applyNodeLayout(again.nodes, again.edges)
+                }
+              } else {
+                const again = resolveConflicts(mid.nodes, mid.edges, {
+                  direction: 'DOWN',
+                  maxPasses: 20,
+                })
                 applyNodeLayout(again.nodes, again.edges)
               }
+              await new Promise((r) => window.setTimeout(r, 120))
+              mid = useEditorStore.getState().diagram
             }
           }
         } catch {
@@ -467,6 +489,19 @@ function EditorInner() {
           }
         })
         measureResolveBusy.current = false
+        // Cards can still grow after fitPending clears; one late resolve pass.
+        window.setTimeout(() => {
+          if (cancelled) return
+          const late = useEditorStore.getState().diagram
+          if (!late) return
+          const still = detectConflicts(late.nodes, late.edges, { direction: 'DOWN' })
+          if (still.nodeOverlaps.length === 0 && still.edgesThroughNodes.length === 0) return
+          const fixed = resolveConflicts(late.nodes, late.edges, {
+            direction: 'DOWN',
+            maxPasses: 20,
+          })
+          applyNodeLayout(fixed.nodes, fixed.edges)
+        }, 500)
       })
     }
 
