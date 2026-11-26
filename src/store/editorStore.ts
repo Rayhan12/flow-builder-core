@@ -7,7 +7,16 @@ import {
   type NodeKind,
   type ShapeType,
 } from '../schema'
+import {
+  alignNodes,
+  distributeNodes,
+  tidyUpNodes,
+  type AlignMode,
+  type DistributeAxis,
+} from '../editor/arrange'
+import { GRID_SIZE } from '../editor/alignment'
 import { createNodeOfKind, newEdgeId, newNodeId } from '../editor/kinds'
+import type { SideHandleId } from '../editor/nodes/sideIds'
 import { applyZOrder, type ZOrderAction } from '../editor/zOrder'
 
 const MAX_HISTORY = 80
@@ -79,12 +88,29 @@ type EditorState = {
     sourceHandle?: string | null
     targetHandle?: string | null
   }) => void
+  reconnectEdge: (
+    edgeId: string,
+    connection: {
+      source: string
+      target: string
+      sourceHandle?: string | null
+      targetHandle?: string | null
+    },
+  ) => void
   insertNodeOnEdge: (edgeId: string, kind: NodeKind) => string | null
+  addConnectedNode: (sourceId: string, side: SideHandleId) => string | null
   updateEdge: (id: string, patch: Partial<DiagramEdge>) => void
   updateEdges: (ids: string[], patch: Partial<DiagramEdge>) => void
   removeEdges: (ids: string[]) => void
 
+  alignSelection: (mode: AlignMode) => void
+  distributeSelection: (axis: DistributeAxis) => void
+  tidySelection: () => void
+  /** Nudge selected nodes. Pass recordHistory true only on the first key of a burst. */
+  nudgeSelection: (dx: number, dy: number, recordHistory: boolean) => void
+
   setSelection: (nodeIds: string[], edgeIds: string[]) => void
+  selectAll: () => void
   clearSelection: () => void
 
   toggleHidden: (ids: string[]) => void
@@ -432,6 +458,74 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     )
   },
 
+  reconnectEdge: (edgeId, connection) => {
+    if (!connection.source || !connection.target || connection.source === connection.target) {
+      return
+    }
+    set((state) =>
+      withHistory(state, (d) => ({
+        ...d,
+        edges: d.edges.map((e) =>
+          e.id === edgeId
+            ? {
+                ...e,
+                source: connection.source,
+                target: connection.target,
+                sourceHandle: connection.sourceHandle || e.sourceHandle || 'bottom',
+                targetHandle: connection.targetHandle || e.targetHandle || 'top',
+              }
+            : e,
+        ),
+      })),
+    )
+  },
+
+  addConnectedNode: (sourceId, side) => {
+    let createdId: string | null = null
+    set((state) =>
+      withHistory(state, (d) => {
+        const source = d.nodes.find((n) => n.id === sourceId)
+        if (!source || source.locked) return d
+        const kind: NodeKind =
+          source.kind === 'start' || source.kind === 'end' || isContainerKind(source.kind)
+            ? 'step'
+            : source.kind
+        const gap = GRID_SIZE * 5
+        const sw = source.size?.w ?? 256
+        const sh = source.size?.h ?? 96
+        const offsets: Record<SideHandleId, { x: number; y: number; target: SideHandleId }> = {
+          top: { x: 0, y: -(gap + 96), target: 'bottom' },
+          right: { x: sw + gap, y: 0, target: 'left' },
+          bottom: { x: 0, y: sh + gap, target: 'top' },
+          left: { x: -(gap + 256), y: 0, target: 'right' },
+        }
+        const off = offsets[side]
+        const position = {
+          x: Math.round((source.position.x + off.x) / GRID_SIZE) * GRID_SIZE,
+          y: Math.round((source.position.y + off.y) / GRID_SIZE) * GRID_SIZE,
+        }
+        const node =
+          source.kind === 'shape'
+            ? createNodeOfKind('shape', position, { shape: source.data.shape })
+            : createNodeOfKind(kind, position)
+        createdId = node.id
+        const edge: DiagramEdge = {
+          id: newEdgeId(),
+          source: sourceId,
+          target: node.id,
+          sourceHandle: side,
+          targetHandle: off.target,
+          type: 'elbow',
+        }
+        return { ...d, nodes: [...d.nodes, node], edges: [...d.edges, edge] }
+      }),
+    )
+    if (createdId) {
+      set({ selectedNodeIds: [createdId], selectedEdgeIds: [] })
+    }
+    return createdId
+  },
+
   insertNodeOnEdge: (edgeId, kind) => {
     if (isContainerKind(kind)) return null
     let createdId: string | null = null
@@ -510,6 +604,44 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }))
   },
 
+  alignSelection: (mode) => {
+    const state = get()
+    if (!state.diagram || state.selectedNodeIds.length < 2) return
+    const updates = alignNodes(state.diagram.nodes, state.selectedNodeIds, mode)
+    if (!updates.length) return
+    get().moveNodes(updates, true)
+  },
+
+  distributeSelection: (axis) => {
+    const state = get()
+    if (!state.diagram || state.selectedNodeIds.length < 3) return
+    const updates = distributeNodes(state.diagram.nodes, state.selectedNodeIds, axis)
+    if (!updates.length) return
+    get().moveNodes(updates, true)
+  },
+
+  tidySelection: () => {
+    const state = get()
+    if (!state.diagram || state.selectedNodeIds.length < 2) return
+    const updates = tidyUpNodes(state.diagram.nodes, state.selectedNodeIds)
+    if (!updates.length) return
+    get().moveNodes(updates, true)
+  },
+
+  nudgeSelection: (dx, dy, recordHistory) => {
+    const state = get()
+    if (!state.diagram || !state.selectedNodeIds.length) return
+    const idSet = new Set(state.selectedNodeIds)
+    const updates = state.diagram.nodes
+      .filter((n) => idSet.has(n.id) && !n.locked && !n.hidden)
+      .map((n) => ({
+        id: n.id,
+        position: { x: n.position.x + dx, y: n.position.y + dy },
+      }))
+    if (!updates.length) return
+    get().moveNodes(updates, recordHistory)
+  },
+
   setSelection: (nodeIds, edgeIds) => {
     const nextNodes = [...nodeIds]
     const nextEdges = [...edgeIds]
@@ -521,6 +653,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return
     }
     set({ selectedNodeIds: nextNodes, selectedEdgeIds: nextEdges })
+  },
+
+  selectAll: () => {
+    const d = get().diagram
+    if (!d) return
+    const ids = d.nodes.filter((n) => !n.hidden && !n.locked).map((n) => n.id)
+    set({ selectedNodeIds: ids, selectedEdgeIds: [] })
   },
 
   clearSelection: () => set({ selectedNodeIds: [], selectedEdgeIds: [] }),
