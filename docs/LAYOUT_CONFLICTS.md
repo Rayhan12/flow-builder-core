@@ -8,12 +8,18 @@ Each node has a content box from measured `size` when present. Otherwise the sha
 `defaultNodeSize` helper picks a kind default:
 
 - Decision / switch: width grows with branch count and chip labels.
-- Start / end / step and most kinds: width grows with the label up to 360px so titles
-  like "Account Declined" stay readable; the card label wraps to at most 2 lines.
+- Start / end / step and most kinds: width grows with the label up to 360px, then
+  height grows so the full title is visible (no ellipsis truncation on canvas).
+- Decision / switch also budget the hint row and branch chip row heights to match
+  the browser card CSS (`estimateNodeSize` in `shared/layout/nodeSizes.ts`).
 - Groups and sections use container defaults (collapsed vs expanded).
 
 Conflict tests expand that content box by a **margin of 24px** on every side. The
 margin is the "keep-out" zone other cards should not enter.
+
+Shared bus detection treats opposite-direction collinear overlaps the same as
+same-direction ones, so head-on edges never share a segment (avoids bow-tie
+arrowheads). Back edges (cycles) are routed around the side on a clear highway.
 
 ## What counts as a conflict
 
@@ -58,3 +64,7 @@ MCP inserts run detect (and resolve when needed) after placement.
 - After incremental placement (`placeNodesIncremental`)
 - On demand from the toolbar badge
 - AI / agent / MCP paths call the same shared helpers after create and edit
+- On diagram open when `fitPending` / `layoutPending` is set (server or MCP layout):
+  after React Flow measures real card sizes, the editor auto-runs conflict resolve
+  (or a full relayout if needed) and saves, so the overlap badge never appears on a
+  fresh AI/MCP diagram
