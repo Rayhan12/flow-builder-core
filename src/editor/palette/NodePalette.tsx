@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type DragEvent } from 'react
 import type { NodeKind, ShapeType } from '../../schema'
 import { resolveColor } from '../colors'
 import { KIND_META, PALETTE_GROUPS, type PaletteItem } from '../kinds'
+import { ShapePreview } from '../nodes/ShapePreview'
 import { setPaletteDragData } from '../paletteDrop'
 import { CollapseSection } from '../ui/CollapseToggle'
 
@@ -162,6 +163,7 @@ export function NodePalette({ onAdd, diagramTitle = 'Untitled diagram' }: Props)
                   aria-label={`Add ${item.label}`}
                   data-palette-kind={item.kind}
                   data-palette-item={item.id}
+                  data-palette-shape={item.shape}
                   onDragStart={(e) => onDragStart(item, e)}
                   onDragEnd={onDragEnd}
                   onClick={() => addItem(item)}
@@ -171,7 +173,11 @@ export function NodePalette({ onAdd, diagramTitle = 'Untitled diagram' }: Props)
                     style={{ background: color.tint, color: color.solid }}
                     aria-hidden
                   >
-                    <Icon size={14} strokeWidth={2} />
+                    {item.shape ? (
+                      <ShapePreview shape={item.shape} size={16} color={color.solid} />
+                    ) : (
+                      <Icon size={14} strokeWidth={2} />
+                    )}
                   </span>
                   <span className="palette-item-chip" style={{ background: color.solid }} aria-hidden />
                 </button>
@@ -202,8 +208,11 @@ export function NodePalette({ onAdd, diagramTitle = 'Untitled diagram' }: Props)
                           type="button"
                           className={`palette-item ${draggingId === item.id ? 'is-dragging' : ''}`}
                           draggable
+                          title={`${item.label}: ${item.hint}`}
+                          aria-label={`Add ${item.label}`}
                           data-palette-kind={item.kind}
                           data-palette-item={item.id}
+                          data-palette-shape={item.shape}
                           onDragStart={(e) => onDragStart(item, e)}
                           onDragEnd={onDragEnd}
                           onClick={() => addItem(item)}
@@ -213,7 +222,11 @@ export function NodePalette({ onAdd, diagramTitle = 'Untitled diagram' }: Props)
                             style={{ background: color.tint, color: color.solid }}
                             aria-hidden
                           >
-                            <Icon size={14} strokeWidth={2} />
+                            {item.shape ? (
+                              <ShapePreview shape={item.shape} size={16} color={color.solid} />
+                            ) : (
+                              <Icon size={14} strokeWidth={2} />
+                            )}
                           </span>
                           <span
                             className="palette-item-chip"

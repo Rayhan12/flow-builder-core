@@ -2113,10 +2113,13 @@ input {
 
 .flow-node-branches {
   display: grid;
-  gap: 6px 4px;
+  gap: 8px 8px;
   margin-top: 12px;
   width: 100%;
   justify-items: center;
+  justify-content: center;
+  padding: 0 4px 2px;
+  box-sizing: border-box;
 }
 
 .flow-node-branches.side-right {
@@ -2129,41 +2132,73 @@ input {
   display: flex;
   flex-direction: column;
   align-items: center;
-  min-width: 96px;
+  justify-content: flex-start;
+  min-width: 0;
   width: 100%;
-  padding-bottom: 6px;
+  padding-bottom: 10px;
 }
 
 .flow-node-branches.side-right .flow-branch {
   flex-direction: row;
   justify-content: flex-end;
+  align-items: center;
   gap: 6px;
   padding-bottom: 0;
-  padding-right: 6px;
+  padding-right: 10px;
+}
+
+.flow-branch-handle-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 1.5px solid var(--color-border);
+  margin-top: 2px;
 }
 
 .flow-branch-chip {
+  position: relative;
   font-size: 11px;
   line-height: 1.3;
   padding: 2px 8px;
   border-radius: var(--radius-sm);
   border: 1px solid;
   background: var(--color-surface);
-  margin-bottom: 2px;
+  margin-bottom: 4px;
   white-space: nowrap;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.flow-branch .flow-handle {
-  position: relative !important;
-  transform: none !important;
-  left: auto !important;
-  top: auto !important;
-  right: auto !important;
-  bottom: auto !important;
-  opacity: 1;
+.flow-branch-chip[data-tooltip]:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 6px);
+  transform: translateX(-50%);
+  background: var(--color-chrome-dark);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1.3;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  z-index: 20;
+  pointer-events: none;
+  box-shadow: var(--shadow-float);
+}
+
+/* Branch source handles sit on the card edge at the chip column centres (left/top % set inline). */
+.flow-node-decision .flow-branch-handle {
+  opacity: 1 !important;
+  z-index: 5;
+}
+
+.flow-node-decision {
+  padding-bottom: 2px;
 }
 
 .flow-handle {
@@ -2172,7 +2207,16 @@ input {
   border: 1.5px solid var(--color-border) !important;
   background: var(--color-surface) !important;
   opacity: 0;
-  transition: opacity 120ms ease-out, border-color 120ms ease-out, background 120ms ease-out;
+  transition: opacity 120ms ease-out, border-color 120ms ease-out, background 120ms ease-out,
+    box-shadow 120ms ease-out;
+}
+
+/* Larger invisible hit area (~20px) while the visible circle stays small. */
+.flow-handle::before {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  border-radius: 999px;
 }
 
 .flow-node:hover .flow-handle,
@@ -2181,7 +2225,9 @@ input {
 .flow-group.is-selected .flow-handle,
 .react-flow__node:focus-within .flow-handle,
 .flow-handle.connecting,
-.flow-handle-connecting {
+.flow-handle-connecting,
+.react-flow__node.is-connect-source .flow-handle,
+.react-flow__node.is-connect-target .flow-handle {
   opacity: 1;
 }
 
@@ -2191,6 +2237,81 @@ input {
   border-color: var(--color-accent) !important;
   background: var(--color-accent) !important;
   opacity: 1 !important;
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+
+.flow-node-hint {
+  margin: 8px 0 0;
+  padding: 0;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--color-text-3);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-node-decision {
+  overflow: visible;
+  padding-bottom: 4px;
+}
+
+.react-flow__node.is-connect-target .flow-node,
+.react-flow__node.is-connect-target .flow-group,
+.react-flow__node.is-connect-target .flow-shape {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--color-accent-subtle);
+}
+
+.react-flow__node.is-connect-source .flow-node {
+  outline: 2px dashed var(--color-accent);
+  outline-offset: 2px;
+}
+
+.react-flow.is-connector-tool,
+.react-flow.is-connector-tool .react-flow__pane {
+  cursor: crosshair;
+}
+
+.view-menu {
+  position: relative;
+}
+
+.view-menu-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 180px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-float);
+  padding: 4px;
+  z-index: 40;
+}
+
+.view-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-caption);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.view-menu-item:hover {
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+}
+
+.flow-node-decision .quick-add-btn-bottom {
+  display: none;
 }
 
 .flow-group {

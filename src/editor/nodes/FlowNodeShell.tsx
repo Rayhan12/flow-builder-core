@@ -1,15 +1,25 @@
-import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { Handle, Position, useUpdateNodeInternals, type NodeProps } from '@xyflow/react'
 import { Eye, EyeOff } from 'lucide-react'
-import { createElement, memo, type CSSProperties, type ReactNode } from 'react'
+import {
+  createElement,
+  memo,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from 'react'
 import { useEditorStore } from '../../store/editorStore'
 import { resolveColor } from '../colors'
 import {
   BRANCHES_PER_ROW,
+  branchSlotWidth,
   decisionBranchColumns,
 } from '../decisionLayout'
 import type { FlowNode } from '../flowTypes'
 import { getLucideIcon } from '../icons'
 import { KIND_META } from '../kinds'
+import { readShowNodeHints } from '../nodeHints'
 import { ExpandableText } from '../ui/ExpandableText'
 import { SideHandles, type SideHandleId } from './SideHandles'
 
@@ -32,6 +42,24 @@ type Props = NodeProps<FlowNode> & {
   noSideHandles?: boolean
 }
 
+function useShowNodeHints(): boolean {
+  const [show, setShow] = useState(readShowNodeHints)
+  useEffect(() => {
+    function onChange(e: Event) {
+      const detail = (e as CustomEvent<boolean>).detail
+      if (typeof detail === 'boolean') setShow(detail)
+      else setShow(readShowNodeHints())
+    }
+    window.addEventListener('fb:node-hints', onChange)
+    window.addEventListener('storage', onChange)
+    return () => {
+      window.removeEventListener('fb:node-hints', onChange)
+      window.removeEventListener('storage', onChange)
+    }
+  }, [])
+  return show
+}
+
 function FlowNodeShellInner({
   data,
   selected,
@@ -49,6 +77,9 @@ function FlowNodeShellInner({
 }: Props) {
   const node = data.diagramNode
   const toggleHidden = useEditorStore((s) => s.toggleHidden)
+  const updateNodeInternals = useUpdateNodeInternals()
+  const branchRowRef = useRef<HTMLDivElement>(null)
+  const showHints = useShowNodeHints()
   const meta = KIND_META[node.kind]
   const color = resolveColor(node.color, meta.defaultColor)
   const iconEl = createElement(getLucideIcon(node.icon, meta.icon), {
@@ -63,8 +94,38 @@ function FlowNodeShellInner({
     omitSides.push(branchHandleSide)
   }
 
+  const branchKey = sourceHandles?.map((b) => `${b.id}:${b.label}`).join('|')
+
+  useEffect(() => {
+    if (!hasBranches) return
+    const el = branchRowRef.current
+    if (!el) return
+
+    function refresh() {
+      if (typeof DOMMatrixReadOnly === 'undefined') return
+      try {
+        updateNodeInternals(node.id)
+      } catch {
+        /* ignore in non-browser */
+      }
+    }
+
+    refresh()
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => refresh()) : null
+    ro?.observe(el)
+    document.fonts?.ready?.then(() => refresh()).catch(() => undefined)
+    return () => ro?.disconnect()
+  }, [
+    hasBranches,
+    branchKey,
+    branchHandleSide,
+    node.id,
+    updateNodeInternals,
+    node.size?.w,
+    node.size?.h,
+  ])
+
   if (groupStyle) {
-    // Legacy path kept for note-style callers; GroupNode uses its own chrome.
     const collapsed =
       (node.kind === 'group' || node.kind === 'section') && node.data.collapsed === true
     return (
@@ -106,6 +167,9 @@ function FlowNodeShellInner({
 
   const branchCount = sourceHandles?.length ?? 0
   const cols = decisionBranchColumns(branchCount)
+  const maxSlot = sourceHandles
+    ? Math.max(...sourceHandles.map((b) => branchSlotWidth(b.label)), 96)
+    : 96
 
   return (
     <div
@@ -126,12 +190,13 @@ function FlowNodeShellInner({
           ...(hasBranches
             ? {
                 width: '100%',
-                minWidth: cols * 96,
+                minWidth: cols * maxSlot + 24,
               }
             : {}),
         } as CSSProperties
       }
       data-testid={hasBranches ? 'decision-card' : undefined}
+      data-kind={node.kind}
     >
       {invalid ? <span className="flow-node-error-dot" aria-hidden /> : null}
 
@@ -172,40 +237,79 @@ function FlowNodeShellInner({
 
       {children}
 
+      {showHints && !hideHeader && !noteStyle && !groupStyle ? (
+        <p className="flow-node-hint" data-testid="node-kind-hint">
+          {meta.hint}
+        </p>
+      ) : null}
+
       {hasBranches && sourceHandles ? (
-        <div
-          className={`flow-node-branches side-${branchHandleSide}`}
-          style={{
-            gridTemplateColumns: `repeat(${Math.min(branchCount, BRANCHES_PER_ROW)}, minmax(96px, 1fr))`,
-          }}
-          data-testid="decision-branch-row"
-        >
-          {sourceHandles.map((branch) => {
-            const branchColor = resolveColor(branch.color, 'amber')
-            return (
-              <div key={branch.id} className="flow-branch" data-testid="decision-branch-pill">
-                <span
-                  className="flow-branch-chip"
-                  style={{ borderColor: branchColor.solid, color: branchColor.solid }}
-                  title={branch.label}
+        <>
+          <div
+            ref={branchRowRef}
+            className={`flow-node-branches side-${branchHandleSide}`}
+            style={{
+              gridTemplateColumns: `repeat(${Math.min(branchCount, BRANCHES_PER_ROW)}, minmax(${maxSlot}px, 1fr))`,
+            }}
+            data-testid="decision-branch-row"
+          >
+            {sourceHandles.map((branch) => {
+              const branchColor = resolveColor(branch.color, 'amber')
+              return (
+                <div
+                  key={branch.id}
+                  className="flow-branch"
+                  data-testid="decision-branch-pill"
+                  data-branch-id={branch.id}
                 >
-                  {branch.label}
-                </span>
-                <Handle
-                  type="source"
-                  position={branchHandleSide === 'right' ? Position.Right : Position.Bottom}
-                  id={branch.id}
-                  className="flow-handle"
-                  style={{ background: branchColor.solid }}
-                />
-              </div>
+                  <span
+                    className="flow-branch-chip"
+                    style={{ borderColor: branchColor.solid, color: branchColor.solid }}
+                    title={branch.label}
+                    data-tooltip={branch.label}
+                    aria-label={branch.label}
+                  >
+                    {branch.label}
+                  </span>
+                  {/* Visual handle marker aligned with the real RF handle on the card edge */}
+                  <span
+                    className="flow-branch-handle-dot"
+                    style={{ background: branchColor.solid }}
+                    aria-hidden
+                  />
+                </div>
+              )
+            })}
+          </div>
+          {sourceHandles.map((branch, index) => {
+            const branchColor = resolveColor(branch.color, 'amber')
+            const colCount = Math.min(branchCount, BRANCHES_PER_ROW)
+            const col = index % colCount
+            const row = Math.floor(index / BRANCHES_PER_ROW)
+            const rows = Math.max(1, Math.ceil(branchCount / BRANCHES_PER_ROW))
+            const leftPct = ((col + 0.5) / colCount) * 100
+            const topPct = ((row + 0.5) / rows) * 100
+            return (
+              <Handle
+                key={`bh-${branch.id}`}
+                type="source"
+                position={branchHandleSide === 'right' ? Position.Right : Position.Bottom}
+                id={branch.id}
+                className="flow-handle flow-branch-handle"
+                style={
+                  branchHandleSide === 'right'
+                    ? { background: branchColor.solid, top: `${topPct}%` }
+                    : { background: branchColor.solid, left: `${leftPct}%` }
+                }
+                data-branch-handle={branch.id}
+              />
             )
           })}
-        </div>
+        </>
       ) : null}
 
       {!noSideHandles && (showTarget || showSource || hasBranches) ? (
-        <SideHandles omit={omitSides} />
+        <SideHandles omit={omitSides} noQuickAdd={hasBranches} />
       ) : null}
     </div>
   )
