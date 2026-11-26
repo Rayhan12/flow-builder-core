@@ -1534,6 +1534,47 @@ input {
   border-color: var(--color-accent);
 }
 
+.layout-conflict-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--color-warning);
+  background: color-mix(in srgb, var(--color-warning) 12%, var(--color-surface));
+  color: var(--color-text);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-caption);
+  font-weight: 500;
+  max-width: 280px;
+}
+
+.layout-conflict-badge span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.flow-edge-branch-tag {
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.2;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid;
+  background: var(--color-surface);
+  white-space: nowrap;
+  z-index: 2;
+}
+
+.flow-edge-endpoint {
+  pointer-events: none;
+}
+
+.flow-edge-hit {
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
 .flow-edge-waypoint {
   width: 10px;
   height: 10px;
@@ -1884,8 +1925,12 @@ input {
   font-weight: 600;
   color: var(--color-text);
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  word-break: break-word;
+  white-space: normal;
 }
 
 .flow-node-desc,

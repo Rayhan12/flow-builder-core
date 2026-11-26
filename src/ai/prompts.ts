@@ -113,8 +113,12 @@ Rules:
 - Prefer "replace" when creating a new flow from scratch or rewriting most of it.
 - Give every node a stable unique id (e.g. n1, n2). Give every edge a unique id (e.g. e1).
 - Decision nodes must include at least Yes and No branches by default; add more branches with labels and optional match conditions when needed.
+- Each decision/switch branch id is an edge sourceHandle; at most one outgoing edge per branch handle; sourceHandle must exist on the node.
+- Every parallelSplit needs exactly one matching parallelJoin downstream. Do not leave orphan joins or duplicate joins for the same split.
+- Do not create two adjacent nodes with the same kind and the same label in one edit (for example two "Parallel join" cards next to each other).
 - Rule nodes should use structured match groups (field, operator, value) when possible.
 - Positions are optional hints only. Automatic layout runs after your changes — do not invent precise coordinates or spacing.
+- If the tool result is graph_invalid, read each problem message, fix the ops or diagram, and retry.
 - Keep labels short and plain English. Do not use em dashes.
 - Never invent API keys or secrets.
 - Do not include commentary outside the JSON object.

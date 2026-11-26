@@ -24,15 +24,21 @@ const DIAGRAM_HINT =
   'note, callout, image, divider, link, group, shape, sticky, section. ' +
   'Shape data.shape: rect|rounded|diamond|ellipse|parallelogram|cylinder|document|hexagon|triangle. ' +
   'A decision/switch node needs data.branches: [{ id, label }], and each branch id is an edge sourceHandle. ' +
+  'Each branch handle may have at most one outgoing edge, and sourceHandle must match a real branch id. ' +
+  'Every parallelSplit needs one matching parallelJoin downstream (no duplicate joins for the same split). ' +
+  'Do not create two adjacent nodes with the same kind and label in one edit. ' +
   'Positions are optional hints only — automatic layout runs after create/update (ELK layered, branch-aware). ' +
-  'Do not invent precise coordinates or spacing. Max 2000 nodes and 4000 edges. Every edge must point at real node ids.'
+  'Do not invent precise coordinates or spacing. Max 2000 nodes and 4000 edges. Every edge must point at real node ids. ' +
+  'If a tool returns code graph_invalid, read the problem list, fix the graph, and retry.'
 
 const OPS_HINT =
   'Edit operations applied in order. Allowed: { op: "addNode", node: { kind, label, id?, position?, data? } }, ' +
   '{ op: "updateNode", id, patch }, { op: "removeNode", id }, { op: "addEdge", edge: { source, target, id?, sourceHandle?, label? } }, ' +
   '{ op: "updateEdge", id, patch }, { op: "removeEdge", id }, { op: "setGroup", nodeId, parentId: string or null }, ' +
   '{ op: "setTitle", title }. Positions on addNode are optional hints; new nodes are placed automatically near their ' +
-  'anchor without relaying out the whole board. All ops are validated together; if any op is invalid nothing is saved.'
+  'anchor without relaying out the whole board. Graph rules: parallelSplit needs one downstream parallelJoin; ' +
+  'decision/switch branches have at most one outgoing edge per branch id; no duplicate adjacent kind+label in the same edit. ' +
+  'All ops are validated together; if any op is invalid or graph_invalid nothing is saved.'
 
 const diagramJson = z.record(z.string(), z.unknown()).describe(DIAGRAM_HINT)
 const opsJson = z

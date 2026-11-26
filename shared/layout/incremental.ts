@@ -3,6 +3,7 @@
  * only affected (downstream) nodes so nothing overlaps. Prefer not to move
  * manuallyPositioned nodes; never leave overlaps.
  */
+import { detectConflicts, resolveConflicts } from './conflicts.ts'
 import { LAYER_SPACING, NODE_NODE_SPACING, defaultNodeSize } from './nodeSizes.ts'
 import type {
   LayoutDirection,
@@ -325,6 +326,12 @@ export function placeNodesIncremental<
       continue
     }
     node.position = { x: box.x, y: box.y }
+  }
+
+  const report = detectConflicts(nextNodes, nextEdges, { direction })
+  if (report.nodeOverlaps.length > 0 || report.edgesThroughNodes.length > 0) {
+    const fixed = resolveConflicts(nextNodes, nextEdges, { direction })
+    return { nodes: fixed.nodes as N[], edges: fixed.edges as E[] }
   }
 
   return { nodes: nextNodes, edges: nextEdges }

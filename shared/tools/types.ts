@@ -42,6 +42,7 @@ export type ToolErrorCode =
   | 'not_allowed'
   | 'declined'
   | 'failed'
+  | 'graph_invalid'
 
 /** Throw this from a DataPort to give the model a precise failure code. */
 export class ToolError extends Error {

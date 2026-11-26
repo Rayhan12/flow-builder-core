@@ -171,6 +171,23 @@ describe('previewFromResponse', () => {
   })
 })
 
+describe('graph validation in applyOps', () => {
+  it('returns graph_invalid when a parallelSplit has no join', () => {
+    const diagram = createEmptyDiagram('d1', 'Test')
+    const result = applyOps(diagram, [
+      { op: 'addNode', node: { id: 'n1', kind: 'start', label: 'Start' } },
+      { op: 'addNode', node: { id: 'n2', kind: 'parallelSplit', label: 'Split' } },
+      { op: 'addNode', node: { id: 'n3', kind: 'step', label: 'A' } },
+      { op: 'addEdge', edge: { id: 'e1', source: 'n1', target: 'n2' } },
+      { op: 'addEdge', edge: { id: 'e2', source: 'n2', target: 'n3' } },
+    ])
+    expect(result.ok).toBe(false)
+    if (result.ok) return
+    expect(result.code).toBe('graph_invalid')
+    expect(result.error).toMatch(/parallelSplit/)
+  })
+})
+
 describe('computeDiff', () => {
   it('marks changed nodes when label updates', () => {
     const before = createEmptyDiagram('d1', 'T')

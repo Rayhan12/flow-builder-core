@@ -1,4 +1,9 @@
 import { z } from 'zod'
+import {
+  formatGraphProblems,
+  validateGraph,
+  type GraphProblem,
+} from '../../shared/layout/validateGraph.ts'
 import { createNodeOfKind, newEdgeId, newNodeId } from '../editor/kinds.ts'
 import {
   CURRENT_SCHEMA_VERSION,
@@ -147,7 +152,7 @@ export type DiagramDiff = {
 
 export type ApplyResult =
   | { ok: true; diagram: Diagram; diff: DiagramDiff }
-  | { ok: false; error: string }
+  | { ok: false; error: string; code?: 'graph_invalid'; problems?: GraphProblem[] }
 
 function nodeFingerprint(node: DiagramNode): string {
   const { position: _p, ...rest } = node
@@ -369,6 +374,26 @@ export function applyOps(diagram: Diagram, ops: EditOp[]): ApplyResult {
   }
 
   const next: Diagram = { ...parsed.data, id: diagram.id }
+  const editedNodeIds = ops.flatMap((op) => {
+    if (op.op === 'addNode') return op.node.id ? [op.node.id] : []
+    if (op.op === 'updateNode') return [op.id]
+    return []
+  })
+  // Include newly assigned ids from the resulting diagram for addNode without id.
+  const beforeIds = new Set(diagram.nodes.map((n) => n.id))
+  for (const n of next.nodes) {
+    if (!beforeIds.has(n.id)) editedNodeIds.push(n.id)
+  }
+  const problems = validateGraph(next.nodes, next.edges, { editedNodeIds })
+  if (problems.length > 0) {
+    return {
+      ok: false,
+      code: 'graph_invalid',
+      error: `Graph invalid:\n${formatGraphProblems(problems)}`,
+      problems,
+    }
+  }
+
   return {
     ok: true,
     diagram: next,
@@ -476,6 +501,20 @@ export function applyReplace(diagram: Diagram, rawDiagram: unknown, summary: str
   }
 
   const next: Diagram = { ...parsed.data, id: diagram.id }
+  const beforeIds = new Set(diagram.nodes.map((n) => n.id))
+  const editedNodeIds = next.nodes.filter((n) => !beforeIds.has(n.id)).map((n) => n.id)
+  // Full replace of an empty/nearly empty board: treat all nodes as edited.
+  const problems = validateGraph(next.nodes, next.edges, {
+    editedNodeIds: editedNodeIds.length > 0 ? editedNodeIds : next.nodes.map((n) => n.id),
+  })
+  if (problems.length > 0) {
+    return {
+      ok: false,
+      code: 'graph_invalid',
+      error: `Graph invalid:\n${formatGraphProblems(problems)}`,
+      problems,
+    }
+  }
   return { ok: true, diagram: next, diff: computeDiff(diagram, next, summary) }
 }
 

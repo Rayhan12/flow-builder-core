@@ -1,5 +1,6 @@
 import { ReactFlowProvider, useNodesInitialized, useReactFlow, useViewport } from '@xyflow/react'
 import {
+  AlertTriangle,
   ArrowLeft,
   Download,
   Eye,
@@ -50,6 +51,11 @@ import {
   parseImportedJson,
 } from '../editor/importExport'
 import { isEditableKeyboardTarget } from '../editor/keyboard'
+import {
+  detectConflicts,
+  resolveConflicts,
+  summarizeConflicts,
+} from '../../shared/layout/index.ts'
 import { layoutDiagram, type LayoutDirection } from '../editor/layout'
 import { CommandPalette, type CommandPaletteResult } from '../editor/CommandPalette'
 import { NodePalette } from '../editor/palette/NodePalette'
@@ -382,6 +388,13 @@ function EditorInner() {
     return () => window.clearTimeout(timer)
   }, [saveStatus, diagram, persist])
 
+  const conflictSummary = useMemo(() => {
+    if (!diagram || diagram.nodes.length === 0) return null
+    const report = detectConflicts(diagram.nodes, diagram.edges, { direction: 'DOWN' })
+    const summary = summarizeConflicts(report)
+    return summary.hasConflicts ? summary : null
+  }, [diagram])
+
   const runLayout = useCallback(
     async (direction: LayoutDirection = 'DOWN') => {
       const state = useEditorStore.getState()
@@ -408,6 +421,27 @@ function EditorInner() {
     },
     [applyNodeLayout, fitView, layoutBusy],
   )
+
+  const fixLayoutConflicts = useCallback(() => {
+    const state = useEditorStore.getState()
+    const current = state.diagram
+    if (!current || layoutBusy) return
+    setLayoutBusy(true)
+    void (async () => {
+      try {
+        let fixed = resolveConflicts(current.nodes, current.edges, { direction: 'DOWN' })
+        const still = detectConflicts(fixed.nodes, fixed.edges, { direction: 'DOWN' })
+        if (still.nodeOverlaps.length > 0 || still.edgesThroughNodes.length > 0) {
+          const laid = await layoutDiagram(fixed.nodes, fixed.edges, { direction: 'DOWN' })
+          fixed = { nodes: laid.nodes, edges: laid.edges, report: still }
+        }
+        applyNodeLayout(fixed.nodes, fixed.edges)
+        requestAnimationFrame(() => fitView({ padding: 0.2, duration: 200 }))
+      } finally {
+        setLayoutBusy(false)
+      }
+    })()
+  }, [applyNodeLayout, fitView, layoutBusy])
 
 
   useEffect(() => {
@@ -1009,6 +1043,24 @@ function EditorInner() {
             >
               <LayoutTemplate size={16} />
             </button>
+            {conflictSummary ? (
+              <div
+                className="layout-conflict-badge"
+                data-testid="layout-conflict-badge"
+                title={conflictSummary.label}
+              >
+                <AlertTriangle size={14} aria-hidden />
+                <span>{conflictSummary.label}</span>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  data-testid="fix-layout"
+                  onClick={fixLayoutConflicts}
+                >
+                  Fix layout
+                </button>
+              </div>
+            ) : null}
             <button
               type="button"
               className="btn btn-ghost btn-icon"

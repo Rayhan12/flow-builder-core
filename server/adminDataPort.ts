@@ -209,7 +209,12 @@ export function createAdminDataPort(uid: string, db: Firestore = getAdminDb()): 
 
   async function validateReplace(base: Diagram, raw: DiagramJson, summary: string): Promise<Diagram> {
     const result = applyReplace(base, raw, summary)
-    if (!result.ok) throw new ToolError('invalid_args', `Invalid diagram: ${result.error}`)
+    if (!result.ok) {
+      throw new ToolError(
+        result.code === 'graph_invalid' ? 'graph_invalid' : 'invalid_args',
+        `Invalid diagram: ${result.error}`,
+      )
+    }
     return runFullLayout(result.diagram)
   }
 
@@ -395,7 +400,12 @@ export function createAdminDataPort(uid: string, db: Firestore = getAdminDb()): 
       const record = await requireDiagram(projectId, diagramId)
       const before = baseOf(record)
       const result = applyOps(before, parsed.data)
-      if (!result.ok) throw new ToolError('invalid_args', `Edits not applied: ${result.error}`)
+      if (!result.ok) {
+        throw new ToolError(
+          result.code === 'graph_invalid' ? 'graph_invalid' : 'invalid_args',
+          `Edits not applied: ${result.error}`,
+        )
+      }
       let next = result.diagram
       const added = result.diff.addedNodes
       if (added.length > 0) {

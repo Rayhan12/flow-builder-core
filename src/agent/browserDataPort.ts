@@ -175,10 +175,15 @@ export function createBrowserDataPort(uid: string, options: BrowserDataPortOptio
     }
   }
 
-  /** Validate a full diagram and place it on the base. Throws invalid_args. */
+  /** Validate a full diagram and place it on the base. Throws invalid_args / graph_invalid. */
   async function validateReplace(base: Diagram, raw: DiagramJson, summary: string): Promise<Diagram> {
     const result = applyReplace(base, raw, summary)
-    if (!result.ok) throw new ToolError('invalid_args', `Invalid diagram: ${result.error}`)
+    if (!result.ok) {
+      throw new ToolError(
+        result.code === 'graph_invalid' ? 'graph_invalid' : 'invalid_args',
+        `Invalid diagram: ${result.error}`,
+      )
+    }
     return runFullLayout(result.diagram)
   }
 
@@ -252,7 +257,12 @@ export function createBrowserDataPort(uid: string, options: BrowserDataPortOptio
       const record = await requireDiagram(projectId, diagramId)
       const before = baseOf(record)
       const result = applyOps(before, parsed.data)
-      if (!result.ok) throw new ToolError('invalid_args', `Edits not applied: ${result.error}`)
+      if (!result.ok) {
+        throw new ToolError(
+          result.code === 'graph_invalid' ? 'graph_invalid' : 'invalid_args',
+          `Edits not applied: ${result.error}`,
+        )
+      }
       const addedNodeIds = result.diff.addedNodes
       const next = await runIncremental(before, result.diagram, addedNodeIds)
       const saved = await persist(projectId, record, next)
