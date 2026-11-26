@@ -540,10 +540,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           targetHandle: conn.targetHandle || 'top',
         }
         const sourceNode = d.nodes.find((n) => n.id === conn.source)
-        if (sourceNode?.kind === 'decision' && conn.sourceHandle) {
+        if (
+          (sourceNode?.kind === 'decision' || sourceNode?.kind === 'switch') &&
+          conn.sourceHandle
+        ) {
           const branch = sourceNode.data.branches.find((b) => b.id === conn.sourceHandle)
           if (branch) {
-            edge.label = branch.label
+            // Colour the edge; chip already names the branch so skip duplicate labels.
             edge.color = branch.color
           }
         }

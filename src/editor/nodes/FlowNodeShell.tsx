@@ -244,68 +244,47 @@ function FlowNodeShellInner({
       ) : null}
 
       {hasBranches && sourceHandles ? (
-        <>
-          <div
-            ref={branchRowRef}
-            className={`flow-node-branches side-${branchHandleSide}`}
-            style={{
-              gridTemplateColumns: `repeat(${Math.min(branchCount, BRANCHES_PER_ROW)}, minmax(${maxSlot}px, 1fr))`,
-            }}
-            data-testid="decision-branch-row"
-          >
-            {sourceHandles.map((branch) => {
-              const branchColor = resolveColor(branch.color, 'amber')
-              return (
-                <div
-                  key={branch.id}
-                  className="flow-branch"
-                  data-testid="decision-branch-pill"
-                  data-branch-id={branch.id}
-                >
-                  <span
-                    className="flow-branch-chip"
-                    style={{ borderColor: branchColor.solid, color: branchColor.solid }}
-                    title={branch.label}
-                    data-tooltip={branch.label}
-                    aria-label={branch.label}
-                  >
-                    {branch.label}
-                  </span>
-                  {/* Visual handle marker aligned with the real RF handle on the card edge */}
-                  <span
-                    className="flow-branch-handle-dot"
-                    style={{ background: branchColor.solid }}
-                    aria-hidden
-                  />
-                </div>
-              )
-            })}
-          </div>
-          {sourceHandles.map((branch, index) => {
+        <div
+          ref={branchRowRef}
+          className={`flow-node-branches side-${branchHandleSide}`}
+          style={{
+            gridTemplateColumns: `repeat(${Math.min(branchCount, BRANCHES_PER_ROW)}, minmax(${maxSlot}px, 1fr))`,
+          }}
+          data-testid="decision-branch-row"
+        >
+          {sourceHandles.map((branch) => {
             const branchColor = resolveColor(branch.color, 'amber')
-            const colCount = Math.min(branchCount, BRANCHES_PER_ROW)
-            const col = index % colCount
-            const row = Math.floor(index / BRANCHES_PER_ROW)
-            const rows = Math.max(1, Math.ceil(branchCount / BRANCHES_PER_ROW))
-            const leftPct = ((col + 0.5) / colCount) * 100
-            const topPct = ((row + 0.5) / rows) * 100
             return (
-              <Handle
-                key={`bh-${branch.id}`}
-                type="source"
-                position={branchHandleSide === 'right' ? Position.Right : Position.Bottom}
-                id={branch.id}
-                className="flow-handle flow-branch-handle"
-                style={
-                  branchHandleSide === 'right'
-                    ? { background: branchColor.solid, top: `${topPct}%` }
-                    : { background: branchColor.solid, left: `${leftPct}%` }
-                }
-                data-branch-handle={branch.id}
-              />
+              <div
+                key={branch.id}
+                className="flow-branch"
+                data-testid="decision-branch-pill"
+                data-branch-id={branch.id}
+              >
+                <span
+                  className="flow-branch-chip"
+                  style={{ borderColor: branchColor.solid, color: branchColor.solid }}
+                  title={branch.label}
+                  data-tooltip={branch.label}
+                  aria-label={branch.label}
+                >
+                  {branch.label}
+                </span>
+                {/* Coloured chip dot IS the source Handle (1px anchor at centre; ::after draws the dot). */}
+                <Handle
+                  type="source"
+                  position={branchHandleSide === 'right' ? Position.Right : Position.Bottom}
+                  id={branch.id}
+                  className="flow-branch-handle-dot"
+                  style={{ ['--branch-dot' as string]: branchColor.solid } as CSSProperties}
+                  data-branch-handle={branch.id}
+                  aria-label={`Connect ${branch.label}`}
+                  isConnectable
+                />
+              </div>
             )
           })}
-        </>
+        </div>
       ) : null}
 
       {!noSideHandles && (showTarget || showSource || hasBranches) ? (

@@ -30,7 +30,7 @@ describe('editorStore', () => {
     expect(useEditorStore.getState().diagram?.nodes).toHaveLength(0)
   })
 
-  it('adds decision edges with branch labels', () => {
+  it('adds decision edges with branch colour (chip names the branch; no duplicate label)', () => {
     useEditorStore.getState().load(createEmptyDiagram('d1'), 0)
     const decisionId = useEditorStore.getState().addNode('decision', { x: 0, y: 0 })!
     const endId = useEditorStore.getState().addNode('end', { x: 0, y: 120 })!
@@ -42,7 +42,7 @@ describe('editorStore', () => {
     })
 
     const edge = useEditorStore.getState().diagram?.edges[0]
-    expect(edge?.label).toBe('Yes')
+    expect(edge?.label).toBeUndefined()
     expect(edge?.color).toBe('green')
     expect(edge?.sourceHandle).toBe('yes')
   })

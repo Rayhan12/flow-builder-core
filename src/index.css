@@ -2152,12 +2152,71 @@ input {
   padding-right: 10px;
 }
 
-.flow-branch-handle-dot {
+/*
+ * Branch source Handle = coloured chip dot (not a duplicate on the card border).
+ * Kept position:absolute so React Flow measures it, but pinned to the chip column
+ * (.flow-branch is position:relative) instead of the node edge. 1×1px element so
+ * Position.Bottom/Right attachment ≈ the visual centre; ::after draws the 10px dot.
+ */
+.flow-branch-handle-dot.react-flow__handle {
+  position: absolute !important;
+  left: 50% !important;
+  right: auto !important;
+  top: auto !important;
+  bottom: 2px !important;
+  transform: translate(-50%, 0) !important;
+  width: 1px !important;
+  height: 1px !important;
+  min-width: 1px !important;
+  min-height: 1px !important;
+  border: none !important;
+  background: transparent !important;
+  opacity: 1 !important;
+  pointer-events: all !important;
+  cursor: crosshair;
+  z-index: 5;
+  overflow: visible;
+}
+
+.flow-node-branches.side-right .flow-branch-handle-dot.react-flow__handle {
+  left: auto !important;
+  right: 2px !important;
+  top: 50% !important;
+  bottom: auto !important;
+  transform: translate(0, -50%) !important;
+}
+
+/* Visible coloured branch dot centred on the 1px handle */
+.flow-branch-handle-dot.react-flow__handle::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
   width: 10px;
   height: 10px;
+  transform: translate(-50%, -50%);
   border-radius: 999px;
   border: 1.5px solid var(--color-border);
-  margin-top: 2px;
+  background: var(--branch-dot, var(--color-accent));
+  pointer-events: none;
+  transition: box-shadow 120ms ease-out, border-color 120ms ease-out, transform 120ms ease-out;
+}
+
+/* ~20px hit area */
+.flow-branch-handle-dot.react-flow__handle::before {
+  content: '';
+  position: absolute;
+  inset: -10px;
+  border-radius: 999px;
+}
+
+.flow-branch-handle-dot.react-flow__handle:hover::after,
+.flow-branch-handle-dot.react-flow__handle.connecting::after,
+.flow-branch-handle-dot.react-flow__handle-connecting::after,
+.react-flow__handle-connecting.flow-branch-handle-dot::after {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
+  transform: translate(-50%, -50%) scale(1.15);
 }
 
 .flow-branch-chip {
@@ -2194,12 +2253,6 @@ input {
   z-index: 20;
   pointer-events: none;
   box-shadow: var(--shadow-float);
-}
-
-/* Branch source handles sit on the card edge at the chip column centres (left/top % set inline). */
-.flow-node-decision .flow-branch-handle {
-  opacity: 1 !important;
-  z-index: 5;
 }
 
 .flow-node-decision {

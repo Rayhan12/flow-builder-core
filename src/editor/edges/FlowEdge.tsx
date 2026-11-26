@@ -154,6 +154,8 @@ function CustomMarkerDefs({
 
 export function FlowEdge({
   id,
+  source,
+  sourceHandleId,
   sourceX,
   sourceY,
   targetX,
@@ -169,6 +171,17 @@ export function FlowEdge({
   const edge = data?.diagramEdge
   const edgeType = edge?.type ?? 'elbow'
   const waypoints = edge?.waypoints ?? []
+  const branchHandleId = edge?.sourceHandle ?? sourceHandleId ?? undefined
+  const sourceNode = useEditorStore((s) => s.diagram?.nodes.find((n) => n.id === source))
+  const branchChipLabel =
+    sourceNode &&
+    (sourceNode.kind === 'decision' || sourceNode.kind === 'switch') &&
+    branchHandleId
+      ? sourceNode.data.branches.find((b) => b.id === branchHandleId)?.label
+      : undefined
+  // Chip already names the branch — hide duplicate edge labels so they don't stack under the card.
+  const isDuplicateBranchLabel =
+    typeof label === 'string' && Boolean(branchChipLabel) && label === branchChipLabel
 
   const [path, midX, midY] = useMemo(() => {
     if (waypoints.length) {
@@ -337,7 +350,7 @@ export function FlowEdge({
     updateEdge(id, { waypoints: next.length ? next : undefined })
   }
 
-  const showLabel = Boolean(label) || editing
+  const showLabel = (Boolean(label) && !isDuplicateBranchLabel) || editing
   const markerStartUrl = startCustom ? `url(#${id}-start-${startCustom})` : markerStart
   const markerEndUrl = endCustom ? `url(#${id}-end-${endCustom})` : markerEnd
 
