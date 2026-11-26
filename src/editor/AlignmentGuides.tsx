@@ -1,22 +1,26 @@
 import { useViewport } from '@xyflow/react'
 import type { AlignmentGuide, SpacingHint } from './alignment'
+import type { DistanceMeasurement } from './measure'
 
 type Props = {
   guides: AlignmentGuide[]
   spacings: SpacingHint[]
+  measurements?: DistanceMeasurement[]
 }
 
 /**
- * Overlay for snap guides. Coordinates are in flow space; we transform with
- * the current viewport so lines stay locked to nodes while dragging.
+ * Overlay for snap guides (teal) and distance measurements (red).
+ * Coordinates are in flow space; we transform with the current viewport.
  */
-export function AlignmentGuides({ guides, spacings }: Props) {
+export function AlignmentGuides({ guides, spacings, measurements = [] }: Props) {
   const { x, y, zoom } = useViewport()
 
-  if (guides.length === 0 && spacings.length === 0) return null
+  if (guides.length === 0 && spacings.length === 0 && measurements.length === 0) {
+    return null
+  }
 
   return (
-    <div className="alignment-guides" aria-hidden>
+    <div className="alignment-guides" aria-hidden data-testid="alignment-guides">
       <svg className="alignment-guides-svg">
         <g transform={`translate(${x}, ${y}) scale(${zoom})`}>
           {guides.map((guide, index) =>
@@ -40,6 +44,16 @@ export function AlignmentGuides({ guides, spacings }: Props) {
               />
             ),
           )}
+          {measurements.map((m, index) => (
+            <line
+              key={`m-${index}-${m.x1}-${m.y1}`}
+              className="alignment-measure-line"
+              x1={m.x1}
+              y1={m.y1}
+              x2={m.x2}
+              y2={m.y2}
+            />
+          ))}
         </g>
       </svg>
       {spacings.map((hint, index) => (
@@ -51,6 +65,18 @@ export function AlignmentGuides({ guides, spacings }: Props) {
           }}
         >
           {hint.distance}
+        </div>
+      ))}
+      {measurements.map((m, index) => (
+        <div
+          key={`ml-${index}-${m.labelX}-${m.labelY}`}
+          className="alignment-measure-badge"
+          data-testid="distance-measure"
+          style={{
+            transform: `translate(-50%, -50%) translate(${x + m.labelX * zoom}px, ${y + m.labelY * zoom}px)`,
+          }}
+        >
+          {m.distance}
         </div>
       ))}
     </div>

@@ -1395,6 +1395,164 @@ input {
   white-space: nowrap;
 }
 
+.alignment-measure-line {
+  stroke: var(--color-danger);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.alignment-measure-badge {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--color-danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.selection-toolbar-panel {
+  pointer-events: none;
+}
+
+.selection-toolbar {
+  pointer-events: all;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 8px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-float);
+}
+
+.selection-toolbar-count {
+  font-size: var(--text-caption);
+  color: var(--color-text-3);
+  padding: 0 6px;
+  white-space: nowrap;
+}
+
+.selection-toolbar-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--color-border);
+  margin: 0 4px;
+}
+
+.zoom-menu {
+  position: relative;
+}
+
+.zoom-menu-trigger {
+  min-width: 56px;
+  font-variant-numeric: tabular-nums;
+}
+
+.zoom-menu-popover {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 40;
+  min-width: 180px;
+  padding: 4px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-float);
+  display: flex;
+  flex-direction: column;
+}
+
+.zoom-menu-item {
+  appearance: none;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.zoom-menu-item:hover:not(:disabled) {
+  background: var(--color-accent-tint);
+}
+
+.zoom-menu-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.quick-add-buttons {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.react-flow__node:hover .quick-add-buttons,
+.react-flow__node.selected .quick-add-buttons {
+  opacity: 1;
+}
+
+.quick-add-btn {
+  pointer-events: all;
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-accent);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  cursor: pointer;
+  box-shadow: var(--shadow-float);
+  z-index: 4;
+}
+
+.quick-add-btn:hover {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  border-color: var(--color-accent);
+}
+
+.flow-edge-waypoint {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--color-surface);
+  border: 1.5px solid var(--color-accent);
+  cursor: grab;
+  z-index: 3;
+}
+
+.flow-edge-waypoint.is-mid {
+  border-radius: 999px;
+  opacity: 0.85;
+}
+
+.flow-edge-waypoint:active {
+  cursor: grabbing;
+}
+
+.btn.is-active {
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+}
+
 .side-panel {
   background: var(--color-surface);
   border-left: 1px solid var(--color-border);

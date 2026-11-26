@@ -6,7 +6,8 @@ import {
   Grid3x3,
   Keyboard,
   LayoutTemplate,
-  Maximize2,
+  Magnet,
+  Map as MapIcon,
   Moon,
   Redo2,
   Save,
@@ -15,8 +16,6 @@ import {
   Sun,
   Undo2,
   Upload,
-  ZoomIn,
-  ZoomOut,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
@@ -52,11 +51,40 @@ import { NodeSearch, type NodeSearchResult } from '../editor/NodeSearch'
 import { NodePalette } from '../editor/palette/NodePalette'
 import { LayersPanel } from '../editor/panels/LayersPanel'
 import { NodeSidePanel } from '../editor/panels/NodeSidePanel'
+import { ZoomMenu } from '../editor/ZoomMenu'
 import type { NodeKind, ShapeType } from '../schema'
 import { useEditorStore } from '../store/editorStore'
 import { useTheme } from '../theme/useTheme'
 
 const AUTOSAVE_MS = 1000
+const MINIMAP_STORAGE_KEY = 'flow-builder-minimap'
+const SNAP_STORAGE_KEY = 'flow-builder-snap-grid'
+
+function readBoolPref(key: string, fallback = true): boolean {
+  try {
+    const raw = localStorage.getItem(key)
+    if (raw === null) return fallback
+    return raw !== '0'
+  } catch {
+    return fallback
+  }
+}
+
+function writeBoolPref(key: string, value: boolean) {
+  try {
+    localStorage.setItem(key, value ? '1' : '0')
+  } catch {
+    /* ignore */
+  }
+}
+
+function readMinimapPref(): boolean {
+  return readBoolPref(MINIMAP_STORAGE_KEY, true)
+}
+
+function readSnapPref(): boolean {
+  return readBoolPref(SNAP_STORAGE_KEY, true)
+}
 
 function saveLabel(status: string, error: string | null): string {
   if (status === 'saving') return 'Saving...'
@@ -82,7 +110,7 @@ function EditorInner() {
   const { user } = useAuth()
   const { projects } = useAppData()
   const { theme, toggleTheme } = useTheme()
-  const { fitView, zoomIn, zoomOut } = useReactFlow()
+  const { fitView, zoomIn, zoomOut, setViewport, getViewport } = useReactFlow()
   const { zoom } = useViewport()
   const projectName = projects.find((p) => p.id === projectId)?.name ?? 'Project'
 
@@ -107,6 +135,8 @@ function EditorInner() {
   const duplicateSelection = useEditorStore((s) => s.duplicateSelection)
   const clearSelection = useEditorStore((s) => s.clearSelection)
   const setSelection = useEditorStore((s) => s.setSelection)
+  const selectAll = useEditorStore((s) => s.selectAll)
+  const nudgeSelection = useEditorStore((s) => s.nudgeSelection)
   const selectedNodeIds = useEditorStore((s) => s.selectedNodeIds)
   const toggleHidden = useEditorStore((s) => s.toggleHidden)
   const toggleLocked = useEditorStore((s) => s.toggleLocked)
@@ -125,10 +155,48 @@ function EditorInner() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [leftTab, setLeftTab] = useState<'assets' | 'layers'>('assets')
   const [gridMode, setGridMode] = useState<GridMode>('dots')
+  const [showMinimap, setShowMinimap] = useState(readMinimapPref)
+  const [snapToGridEnabled, setSnapToGridEnabled] = useState(readSnapPref)
   const savingRef = useRef(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const ioMenuRef = useRef<HTMLDivElement>(null)
+  const nudgeBurstRef = useRef(false)
+  const nudgeTimerRef = useRef<number | null>(null)
   const uid = user?.uid
+
+  const zoomToSelection = useCallback(() => {
+    if (!selectedNodeIds.length) return
+    void fitView({
+      padding: 0.3,
+      duration: 200,
+      nodes: selectedNodeIds.map((id) => ({ id })),
+    })
+  }, [fitView, selectedNodeIds])
+
+  const setZoomLevel = useCallback(
+    (nextZoom: number) => {
+      const vp = getViewport()
+      const clamped = Math.max(0.05, Math.min(4, nextZoom))
+      void setViewport({ ...vp, zoom: clamped }, { duration: 160 })
+    },
+    [getViewport, setViewport],
+  )
+
+  const toggleMinimap = useCallback(() => {
+    setShowMinimap((prev) => {
+      const next = !prev
+      writeBoolPref(MINIMAP_STORAGE_KEY, next)
+      return next
+    })
+  }, [])
+
+  const toggleSnap = useCallback(() => {
+    setSnapToGridEnabled((prev) => {
+      const next = !prev
+      writeBoolPref(SNAP_STORAGE_KEY, next)
+      return next
+    })
+  }, [])
 
   const sizeWarning = useMemo(() => {
     if (!diagram) return null
@@ -239,10 +307,60 @@ function EditorInner() {
         return
       }
 
+      if (!typing && e.shiftKey && !meta && !e.altKey) {
+        if (e.key === '!' || e.code === 'Digit1') {
+          // Shift+1
+          if (e.code === 'Digit1') {
+            e.preventDefault()
+            void fitView({ padding: 0.2, duration: 200 })
+            return
+          }
+        }
+        if (e.code === 'Digit2') {
+          e.preventDefault()
+          zoomToSelection()
+          return
+        }
+        if (e.code === 'Digit0') {
+          e.preventDefault()
+          setZoomLevel(1)
+          return
+        }
+      }
+
+      if (!typing && !meta && !e.altKey) {
+        const arrow =
+          e.key === 'ArrowLeft'
+            ? { dx: -1, dy: 0 }
+            : e.key === 'ArrowRight'
+              ? { dx: 1, dy: 0 }
+              : e.key === 'ArrowUp'
+                ? { dx: 0, dy: -1 }
+                : e.key === 'ArrowDown'
+                  ? { dx: 0, dy: 1 }
+                  : null
+        if (arrow && selectedNodeIds.length) {
+          e.preventDefault()
+          const step = e.shiftKey ? 10 : 1
+          const record = !nudgeBurstRef.current
+          nudgeBurstRef.current = true
+          nudgeSelection(arrow.dx * step, arrow.dy * step, record)
+          if (nudgeTimerRef.current != null) window.clearTimeout(nudgeTimerRef.current)
+          nudgeTimerRef.current = window.setTimeout(() => {
+            nudgeBurstRef.current = false
+            nudgeTimerRef.current = null
+          }, 400)
+          return
+        }
+      }
+
       if (!meta) return
       if (typing && key !== 's') return
 
-      if (key === 'z' && !e.shiftKey) {
+      if (key === 'a' && !typing) {
+        e.preventDefault()
+        selectAll()
+      } else if (key === 'z' && !e.shiftKey) {
         e.preventDefault()
         undo()
       } else if ((key === 'z' && e.shiftKey) || key === 'y') {
@@ -290,6 +408,8 @@ function EditorInner() {
     pasteClipboard,
     duplicateSelection,
     clearSelection,
+    selectAll,
+    nudgeSelection,
     nodeSearchOpen,
     shortcutsOpen,
     assistantOpen,
@@ -298,6 +418,9 @@ function EditorInner() {
     toggleLocked,
     reorderZ,
     showAllHidden,
+    fitView,
+    zoomToSelection,
+    setZoomLevel,
   ])
 
   useEffect(() => {
@@ -536,36 +659,17 @@ function EditorInner() {
           </div>
           <span className="editor-toolbar-divider" aria-hidden />
           <div className="editor-toolbar-group">
-            <button
-              type="button"
-              className="btn btn-ghost btn-icon"
-              aria-label="Zoom out"
-              title="Zoom out"
-              onClick={() => zoomOut({ duration: 120 })}
-            >
-              <ZoomOut size={16} />
-            </button>
-            <span className="editor-zoom-label" aria-live="polite">
-              {Math.round(zoom * 100)}%
-            </span>
-            <button
-              type="button"
-              className="btn btn-ghost btn-icon"
-              aria-label="Zoom in"
-              title="Zoom in"
-              onClick={() => zoomIn({ duration: 120 })}
-            >
-              <ZoomIn size={16} />
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost btn-icon"
-              aria-label="Fit view"
-              title="Fit view"
-              onClick={() => fitView({ padding: 0.2, duration: 200 })}
-            >
-              <Maximize2 size={16} />
-            </button>
+            <ZoomMenu
+              zoom={zoom}
+              hasSelection={selectedNodeIds.length > 0}
+              actions={{
+                zoomIn: () => zoomIn({ duration: 120 }),
+                zoomOut: () => zoomOut({ duration: 120 }),
+                fit: () => void fitView({ padding: 0.2, duration: 200 }),
+                selection: zoomToSelection,
+                setZoom: setZoomLevel,
+              }}
+            />
           </div>
           <span className="editor-toolbar-divider" aria-hidden />
           <div className="editor-toolbar-group">
@@ -587,6 +691,28 @@ function EditorInner() {
               onClick={() => setGridMode((m) => cycleGridMode(m))}
             >
               <Grid3x3 size={16} />
+            </button>
+            <button
+              type="button"
+              className={`btn btn-ghost btn-icon ${snapToGridEnabled ? 'is-active' : ''}`}
+              aria-label={snapToGridEnabled ? 'Disable grid snap' : 'Enable grid snap'}
+              aria-pressed={snapToGridEnabled}
+              title="Toggle 16px grid snap (Alt disables while dragging)"
+              data-testid="toggle-snap"
+              onClick={toggleSnap}
+            >
+              <Magnet size={16} />
+            </button>
+            <button
+              type="button"
+              className={`btn btn-ghost btn-icon ${showMinimap ? 'is-active' : ''}`}
+              aria-label={showMinimap ? 'Hide minimap' : 'Show minimap'}
+              aria-pressed={showMinimap}
+              title="Toggle minimap"
+              data-testid="toggle-minimap"
+              onClick={toggleMinimap}
+            >
+              <MapIcon size={16} />
             </button>
             <button
               type="button"
@@ -718,6 +844,8 @@ function EditorInner() {
         </div>
         <Canvas
           gridMode={gridMode}
+          showMinimap={showMinimap}
+          snapToGridEnabled={snapToGridEnabled}
           onDropKind={onDropKind}
           emptyAction={
             <button
@@ -763,6 +891,30 @@ function EditorInner() {
           >
             <h2 id="shortcuts-title">Keyboard shortcuts</h2>
             <ul className="shortcuts-list">
+              <li>
+                <kbd>Space</kbd>+drag Pan canvas
+              </li>
+              <li>
+                <kbd>Shift</kbd>+<kbd>1</kbd> Zoom to fit
+              </li>
+              <li>
+                <kbd>Shift</kbd>+<kbd>2</kbd> Zoom to selection
+              </li>
+              <li>
+                <kbd>Shift</kbd>+<kbd>0</kbd> Zoom 100%
+              </li>
+              <li>
+                <kbd>Ctrl/Cmd</kbd>+scroll Zoom at cursor
+              </li>
+              <li>
+                <kbd>Ctrl/Cmd</kbd>+<kbd>A</kbd> Select all
+              </li>
+              <li>
+                Arrows Nudge 1px · <kbd>Shift</kbd>+arrows 10px
+              </li>
+              <li>
+                <kbd>Alt</kbd> Disable snap while dragging · hover to measure
+              </li>
               <li>
                 <kbd>Ctrl/Cmd</kbd>+<kbd>Z</kbd> Undo
               </li>

@@ -11,6 +11,7 @@ import {
   type Connection,
   type EdgeChangeset,
   type NodeChangeset,
+  type OnReconnect,
   type OnSelectionChangeParams,
   type Viewport,
 } from '@xyflow/react'
@@ -42,6 +43,11 @@ import { AlignmentGuides } from './AlignmentGuides'
 import { remapEdgesForCollapsedGroups } from './collapsedEdges'
 import { edgeTypes } from './edges/edgeTypes'
 import { toFlowEdge, toFlowNode, type FlowEdge, type FlowNode } from './flowTypes'
+import {
+  distancesBetweenBoxes,
+  distancesWhileDragging,
+  type DistanceMeasurement,
+} from './measure'
 import { nodeTypes } from './nodes'
 import {
   dropPositionFromFlowPoint,
@@ -49,6 +55,7 @@ import {
   readPaletteDragKind,
 } from './paletteDrop'
 import { setLastFlowPoint } from './pointerPosition'
+import { SelectionToolbar } from './SelectionToolbar'
 import { sortNodesForCanvas } from './zOrder'
 
 import '@xyflow/react/dist/style.css'
@@ -57,6 +64,9 @@ type Props = {
   onDropKind?: (kind: string, position: { x: number; y: number }) => void
   emptyAction?: ReactNode
   gridMode?: GridMode
+  showMinimap?: boolean
+  /** When false, React Flow 16px grid snap is off (Alt still disables object snap). */
+  snapToGridEnabled?: boolean
 }
 
 function findGroupAtPoint(
@@ -108,7 +118,13 @@ function nearestSideHandle(
   return dy > 0 ? 'bottom' : 'top'
 }
 
-export function Canvas({ onDropKind, emptyAction, gridMode = 'dots' }: Props) {
+export function Canvas({
+  onDropKind,
+  emptyAction,
+  gridMode = 'dots',
+  showMinimap = true,
+  snapToGridEnabled = true,
+}: Props) {
   const diagram = useEditorStore((s) => s.diagram)
   const selectedNodeIds = useEditorStore((s) => s.selectedNodeIds)
   const selectedEdgeIds = useEditorStore((s) => s.selectedEdgeIds)
@@ -117,6 +133,10 @@ export function Canvas({ onDropKind, emptyAction, gridMode = 'dots' }: Props) {
   const removeNodes = useEditorStore((s) => s.removeNodes)
   const removeEdges = useEditorStore((s) => s.removeEdges)
   const addEdgeFromConnection = useEditorStore((s) => s.addEdgeFromConnection)
+  const reconnectEdge = useEditorStore((s) => s.reconnectEdge)
+  const alignSelection = useEditorStore((s) => s.alignSelection)
+  const distributeSelection = useEditorStore((s) => s.distributeSelection)
+  const tidySelection = useEditorStore((s) => s.tidySelection)
   const setSelection = useEditorStore((s) => s.setSelection)
   const setViewport = useEditorStore((s) => s.setViewport)
   const setNodeParent = useEditorStore((s) => s.setNodeParent)
@@ -127,6 +147,8 @@ export function Canvas({ onDropKind, emptyAction, gridMode = 'dots' }: Props) {
   const [spaceHeld, setSpaceHeld] = useState(false)
   const [guides, setGuides] = useState<AlignmentGuide[]>([])
   const [spacings, setSpacings] = useState<SpacingHint[]>([])
+  const [measurements, setMeasurements] = useState<DistanceMeasurement[]>([])
+  const draggingRef = useRef(false)
   const [paletteDragOver, setPaletteDragOver] = useState(false)
   const [dropGhost, setDropGhost] = useState<{ x: number; y: number } | null>(null)
   const [contextMenu, setContextMenu] = useState<{
@@ -210,6 +232,8 @@ export function Canvas({ onDropKind, emptyAction, gridMode = 'dots' }: Props) {
   const clearGuides = useCallback(() => {
     setGuides([])
     setSpacings([])
+    setMeasurements([])
+    draggingRef.current = false
   }, [])
 
   const onNodesChange = useCallback(
@@ -222,13 +246,16 @@ export function Canvas({ onDropKind, emptyAction, gridMode = 'dots' }: Props) {
       const settled = positionChanges.filter((c) => c.position && !c.dragging)
 
       if (dragging.length) {
+        draggingRef.current = true
         const d = useEditorStore.getState().diagram
         if (!d || altHeld) {
           moveNodes(
             dragging.map((c) => ({ id: c.id, position: c.position! })),
             false,
           )
-          clearGuides()
+          setGuides([])
+          setSpacings([])
+          setMeasurements([])
         } else {
           const dragId = dragging[0].id
           const dragPos = dragging[0].position!
@@ -243,9 +270,9 @@ export function Canvas({ onDropKind, emptyAction, gridMode = 'dots' }: Props) {
             const tempNodes = d.nodes.map((n) =>
               n.id === dragId ? { ...n, position: dragPos } : n,
             )
-            const moving = nodeBox(diagramNode.kind === 'group' ? { ...diagramNode, position: dragPos } : { ...diagramNode, position: dragPos }, tempNodes)
+            const moving = nodeBox({ ...diagramNode, position: dragPos }, tempNodes)
             const others = tempNodes
-              .filter((n) => n.id !== dragId && n.kind !== 'group')
+              .filter((n) => n.id !== dragId && !isContainerKind(n.kind) && !n.hidden)
               .map((n) => nodeBox(n, tempNodes))
             const aligned = computeAlignment(moving, others)
 
@@ -267,6 +294,7 @@ export function Canvas({ onDropKind, emptyAction, gridMode = 'dots' }: Props) {
             moveNodes(updates, false)
             setGuides(aligned.guides)
             setSpacings(aligned.spacings)
+            setMeasurements(distancesWhileDragging(aligned.box, others))
           }
         }
       }
@@ -297,30 +325,36 @@ export function Canvas({ onDropKind, emptyAction, gridMode = 'dots' }: Props) {
     [removeEdges],
   )
 
+  const resolveHandles = useCallback((connection: Connection) => {
+    const d = useEditorStore.getState().diagram
+    let sourceHandle = connection.sourceHandle ?? undefined
+    let targetHandle = connection.targetHandle ?? undefined
+    if (!d || !connection.source || !connection.target) {
+      return { sourceHandle, targetHandle }
+    }
+    const sourceNode = d.nodes.find((n) => n.id === connection.source)
+    const targetNode = d.nodes.find((n) => n.id === connection.target)
+    if (sourceNode && !sourceHandle) {
+      const box = nodeBox(sourceNode, d.nodes)
+      const targetPos = targetNode
+        ? worldPosition(targetNode, d.nodes)
+        : { x: box.left + box.width / 2, y: box.top + box.height }
+      sourceHandle = nearestSideHandle(targetPos, box)
+    }
+    if (targetNode && !targetHandle) {
+      const box = nodeBox(targetNode, d.nodes)
+      const sourcePos = sourceNode
+        ? worldPosition(sourceNode, d.nodes)
+        : { x: box.left + box.width / 2, y: box.top }
+      targetHandle = nearestSideHandle(sourcePos, box)
+    }
+    return { sourceHandle, targetHandle }
+  }, [])
+
   const onConnect = useCallback(
     (connection: Connection) => {
       if (!connection.source || !connection.target) return
-      const d = useEditorStore.getState().diagram
-      let sourceHandle = connection.sourceHandle ?? undefined
-      let targetHandle = connection.targetHandle ?? undefined
-      if (d && (!sourceHandle || !targetHandle)) {
-        const sourceNode = d.nodes.find((n) => n.id === connection.source)
-        const targetNode = d.nodes.find((n) => n.id === connection.target)
-        if (sourceNode && !sourceHandle) {
-          const box = nodeBox(sourceNode, d.nodes)
-          const targetPos = targetNode
-            ? worldPosition(targetNode, d.nodes)
-            : { x: box.left + box.width / 2, y: box.top + box.height }
-          sourceHandle = nearestSideHandle(targetPos, box)
-        }
-        if (targetNode && !targetHandle) {
-          const box = nodeBox(targetNode, d.nodes)
-          const sourcePos = sourceNode
-            ? worldPosition(sourceNode, d.nodes)
-            : { x: box.left + box.width / 2, y: box.top }
-          targetHandle = nearestSideHandle(sourcePos, box)
-        }
-      }
+      const { sourceHandle, targetHandle } = resolveHandles(connection)
       addEdgeFromConnection({
         source: connection.source,
         target: connection.target,
@@ -328,8 +362,42 @@ export function Canvas({ onDropKind, emptyAction, gridMode = 'dots' }: Props) {
         targetHandle,
       })
     },
-    [addEdgeFromConnection],
+    [addEdgeFromConnection, resolveHandles],
   )
+
+  const onReconnect = useCallback<OnReconnect<FlowEdge>>(
+    (oldEdge, connection) => {
+      if (!connection.source || !connection.target) return
+      const { sourceHandle, targetHandle } = resolveHandles(connection)
+      reconnectEdge(oldEdge.id, {
+        source: connection.source,
+        target: connection.target,
+        sourceHandle,
+        targetHandle,
+      })
+    },
+    [reconnectEdge, resolveHandles],
+  )
+
+  const onNodeMouseEnter = useCallback(
+    (_: ReactMouseEvent, node: FlowNode) => {
+      if (!altHeld || draggingRef.current || !selectedNodeIds.length) return
+      if (selectedNodeIds.includes(node.id)) return
+      const d = useEditorStore.getState().diagram
+      if (!d) return
+      const selected = d.nodes.find((n) => n.id === selectedNodeIds[0])
+      const hovered = d.nodes.find((n) => n.id === node.id)
+      if (!selected || !hovered) return
+      setMeasurements(
+        distancesBetweenBoxes(nodeBox(selected, d.nodes), nodeBox(hovered, d.nodes)),
+      )
+    },
+    [altHeld, selectedNodeIds],
+  )
+
+  const onNodeMouseLeave = useCallback(() => {
+    if (!draggingRef.current && altHeld) setMeasurements([])
+  }, [altHeld])
 
   const onSelectionChange = useCallback(
     ({ nodes: n, edges: e }: OnSelectionChangeParams<FlowNode, FlowEdge>) => {
@@ -492,10 +560,13 @@ export function Canvas({ onDropKind, emptyAction, gridMode = 'dots' }: Props) {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onReconnect={onReconnect}
         onSelectionChange={onSelectionChange}
         onNodeClick={onNodeClick}
         onEdgeClick={onEdgeClick}
         onNodeContextMenu={onNodeContextMenu}
+        onNodeMouseEnter={onNodeMouseEnter}
+        onNodeMouseLeave={onNodeMouseLeave}
         onPaneClick={onPaneClick}
         onNodeDragStop={onNodeDragStop}
         onViewportChange={onViewportChange}
@@ -509,13 +580,18 @@ export function Canvas({ onDropKind, emptyAction, gridMode = 'dots' }: Props) {
             ? undefined
             : diagram.nodes.length === 0
         }
-        snapToGrid={!altHeld}
+        minZoom={0.05}
+        maxZoom={4}
+        snapToGrid={snapToGridEnabled && !altHeld}
         snapGrid={[GRID_SIZE, GRID_SIZE]}
         deleteKeyCode={['Backspace', 'Delete']}
         multiSelectionKeyCode={['Shift']}
         selectionOnDrag={!spaceHeld}
         panOnDrag={spaceHeld ? true : [1, 2]}
         panOnScroll
+        zoomOnScroll
+        zoomOnPinch
+        zoomActivationKeyCode={['Meta', 'Control']}
         nodesConnectable
         edgesReconnectable
         connectionMode={ConnectionMode.Loose}
@@ -562,14 +638,26 @@ export function Canvas({ onDropKind, emptyAction, gridMode = 'dots' }: Props) {
           </>
         ) : null}
         <Controls showInteractive={false} position="bottom-left" />
-        <MiniMap
-          pannable
-          zoomable
-          position="bottom-right"
-          nodeStrokeWidth={2}
-          maskColor="color-mix(in srgb, var(--color-chrome-dark) 12%, transparent)"
-        />
-        <AlignmentGuides guides={guides} spacings={spacings} />
+        {showMinimap ? (
+          <MiniMap
+            pannable
+            zoomable
+            position="bottom-right"
+            nodeStrokeWidth={2}
+            maskColor="color-mix(in srgb, var(--color-chrome-dark) 12%, transparent)"
+          />
+        ) : null}
+        <AlignmentGuides guides={guides} spacings={spacings} measurements={measurements} />
+        {selectedNodeIds.length >= 2 ? (
+          <Panel position="top-center" className="selection-toolbar-panel">
+            <SelectionToolbar
+              count={selectedNodeIds.length}
+              onAlign={alignSelection}
+              onDistribute={distributeSelection}
+              onTidy={tidySelection}
+            />
+          </Panel>
+        ) : null}
         {diagram.nodes.length === 0 ? (
           <Panel position="top-center" className="canvas-empty-panel">
             <EmptyState
