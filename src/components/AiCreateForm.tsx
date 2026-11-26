@@ -1,8 +1,11 @@
 import { Sparkles } from 'lucide-react'
 import { useId, useState, type FormEvent, type KeyboardEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
+import { MissingKeyCard } from '../ai/components/MissingKeyCard'
+import { ModelSwitcher } from '../ai/components/ModelSwitcher'
 import type { AiCreateHandler } from '../ai/createFromPrompt'
-import { getApiKey, hasApiKey, setApiKey } from '../ai/keyStorage'
+import { hasApiKey } from '../ai/keyStorage'
+import { resolveActiveSelection } from '../ai/providers/selectedModel'
 import { useAppData } from '../app/useAppData'
 import { useAuth } from '../auth/useAuth'
 import { createProject } from '../data/projects'
@@ -42,7 +45,7 @@ export function AiCreateForm({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [keyReady, setKeyReady] = useState(() => (uid ? hasApiKey(uid) : false))
-  const [keyDraft, setKeyDraft] = useState('')
+  const [modelRevision, setModelRevision] = useState(0)
 
   const fallback =
     (defaultProjectId && projects.some((p) => p.id === defaultProjectId) ? defaultProjectId : null) ??
@@ -53,18 +56,6 @@ export function AiCreateForm({
       ? selected
       : fallback
   const creatingProject = effective === NEW_PROJECT
-
-  function onSaveKey() {
-    if (!uid) return
-    try {
-      setApiKey(uid, keyDraft)
-      setKeyDraft('')
-      setKeyReady(getApiKey(uid) !== null)
-      setError(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save the API key')
-    }
-  }
 
   async function submit() {
     if (!uid || busy) return
@@ -171,30 +162,25 @@ export function AiCreateForm({
         </div>
       </div>
 
-      {!keyReady ? (
-        <div className="ask-ai-key" role="note">
-          <p>
-            Add a Gemini API key so AI can build the flow. It stays in this browser only.{' '}
-            <Link to="/settings">Open settings</Link>
-          </p>
-          <div className="ask-ai-key-row">
-            <input
-              type="password"
-              aria-label="Gemini API key"
-              placeholder="Gemini API key"
-              autoComplete="off"
-              value={keyDraft}
-              onChange={(e) => setKeyDraft(e.target.value)}
-            />
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={onSaveKey}
-              disabled={!keyDraft.trim()}
-            >
-              Save key
-            </button>
-          </div>
+      {!keyReady && uid ? (
+        <MissingKeyCard
+          uid={uid}
+          onReady={() => {
+            setKeyReady(true)
+            setModelRevision((n) => n + 1)
+            setError(null)
+          }}
+        />
+      ) : null}
+
+      {keyReady && uid ? (
+        <div className="ask-ai-model">
+          <ModelSwitcher
+            uid={uid}
+            revision={modelRevision}
+            value={resolveActiveSelection(uid)}
+            onChange={() => setModelRevision((n) => n + 1)}
+          />
         </div>
       ) : null}
 

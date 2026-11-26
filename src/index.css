@@ -4744,3 +4744,228 @@ kbd {
 .canvas-hidden-panel {
   margin: 12px;
 }
+
+/* Multi-provider AI */
+
+.ai-key-provider-links {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: 0 0 12px;
+  padding: 0;
+  font-size: var(--text-sm);
+}
+
+.ai-key-provider-links a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.ai-key-provider-links a:hover {
+  text-decoration: underline;
+}
+
+.ai-panel-model-row,
+.ask-ai-model {
+  padding: 8px 16px 0;
+}
+
+.ai-model-switcher {
+  position: relative;
+  display: inline-flex;
+  max-width: 100%;
+}
+
+.ai-model-switcher-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-sm);
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.ai-model-switcher-trigger:hover {
+  border-color: var(--color-accent);
+}
+
+.ai-model-switcher-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+
+.ai-model-switcher-menu {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 280px;
+  max-width: min(420px, 90vw);
+  max-height: 320px;
+  overflow: auto;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-float);
+  padding: 8px;
+}
+
+.ai-model-switcher-search {
+  width: 100%;
+  margin-bottom: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 6px 8px;
+  font: inherit;
+  font-size: var(--text-sm);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+}
+
+.ai-model-switcher-group-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-3);
+  margin: 8px 4px 4px;
+}
+
+.ai-model-switcher-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  font-size: var(--text-sm);
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.ai-model-switcher-option:hover,
+.ai-model-switcher-option.is-active {
+  background: var(--color-accent-tint);
+}
+
+.ai-model-switcher-option.is-disabled {
+  cursor: default;
+  color: var(--color-text-3);
+}
+
+.ai-model-tools-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+  background: var(--color-accent-subtle);
+  border-radius: var(--radius-sm);
+  padding: 1px 5px;
+  margin-left: 6px;
+}
+
+.ai-model-reason {
+  font-size: var(--text-caption);
+  color: var(--color-text-3);
+}
+
+.ai-model-switcher-empty {
+  font-size: var(--text-sm);
+  color: var(--color-text-3);
+  padding: 8px;
+}
+
+.ai-model-switcher-unavailable {
+  margin-top: 8px;
+  font-size: var(--text-sm);
+  color: var(--color-text-3);
+}
+
+.ai-model-switcher-unavailable summary {
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.ai-conn-list {
+  list-style: none;
+  margin: 0 0 20px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ai-conn-item {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  background: var(--color-surface);
+}
+
+.ai-conn-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ai-conn-models {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--text-sm);
+}
+
+.ai-conn-models li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 0;
+  border-top: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+}
+
+.ai-conn-model-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-3);
+  white-space: nowrap;
+}
+
+.ai-conn-add-title {
+  font-size: var(--text-body);
+  font-weight: 600;
+  margin: 8px 0 0;
+}
+
+.ai-conn-headers {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.btn-tiny {
+  font-size: 11px;
+  padding: 2px 6px;
+  min-height: 0;
+}

@@ -9,10 +9,18 @@
  * All of these are exported from `src/agent/index.ts`. The panel needs AuthProvider and a Router above it.
  */
 import { Clock, MessageSquarePlus, Sparkles, X } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { type DataPort } from '../../shared/tools'
-import { forgetApiKey, getApiKey, hasApiKey, setApiKey } from '../ai/keyStorage'
+import { MissingKeyCard } from '../ai/components/MissingKeyCard'
+import { ModelSwitcher } from '../ai/components/ModelSwitcher'
+import { hasApiKey } from '../ai/keyStorage'
+import { getConnection, listConnections, removeConnection } from '../ai/providers/connections'
+import { getModelCache } from '../ai/providers/modelCache'
+import {
+  resolveActiveSelection,
+  setSelectedModel,
+  type SelectedModelRef,
+} from '../ai/providers/selectedModel'
 import { useAuth } from '../auth/useAuth'
 import {
   addAgentChatMessage,
@@ -24,7 +32,6 @@ import {
   titleFromText,
   type StoredToolCall,
 } from '../data/agentChats'
-import { getUserSettings } from '../data/settings'
 import { createBrowserDataPort } from './browserDataPort'
 import {
   generateWithTools,
@@ -151,10 +158,11 @@ function AgentPanelBody({
   const [liveCalls, setLiveCalls] = useState<ToolCardData[]>([])
   const [draft, setDraft] = useState(initialPrompt ?? '')
   const [busy, setBusy] = useState(false)
-  const [model, setModel] = useState('gemini-2.5-flash')
+  const [selection, setSelection] = useState<SelectedModelRef | null>(() =>
+    uid ? resolveActiveSelection(uid) : null,
+  )
   const [keyReady, setKeyReady] = useState(() => Boolean(uid && hasApiKey(uid)))
-  const [keyDraft, setKeyDraft] = useState('')
-  const [keyError, setKeyError] = useState<string | null>(null)
+  const [modelRevision, setModelRevision] = useState(0)
   const [notice, setNotice] = useState<string | null>(null)
   const [chat, setChat] = useState<AgentChat | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -191,11 +199,9 @@ function AgentPanelBody({
     if (!uid || !port) return
     let cancelled = false
     void (async () => {
-      try {
-        const settings = await getUserSettings(uid)
-        if (!cancelled) setModel(settings.aiModel)
-      } catch {
-        // keep default model
+      if (!cancelled) {
+        setSelection(resolveActiveSelection(uid))
+        setKeyReady(hasApiKey(uid))
       }
       if (initialProjectId) {
         try {
@@ -318,8 +324,9 @@ function AgentPanelBody({
   async function send(text: string) {
     const trimmed = text.trim()
     if (!uid || !port || busy || !trimmed) return
-    const apiKey = getApiKey(uid)
-    if (!apiKey) {
+    const active = selection ?? resolveActiveSelection(uid)
+    const conn = active ? getConnection(uid, active.connectionId) : null
+    if (!active || !conn) {
       pendingPromptRef.current = trimmed
       setKeyReady(false)
       return
@@ -335,11 +342,15 @@ function AgentPanelBody({
     setItems((prev) => [...prev, { id: localId('u'), kind: 'user', text: trimmed }])
     persist('user', trimmed)
 
+    const cache = getModelCache(uid, conn.id)
+    const modelStatus = cache?.models.find((m) => m.id === active.model)
     const live = new Map<string, ToolCardData>()
     try {
       const result = await generate({
-        apiKey,
-        model,
+        apiKey: conn.apiKey,
+        model: active.model,
+        connection: conn,
+        supportsTools: modelStatus?.supportsTools ?? true,
         system: buildAgentSystemPrompt({
           mode,
           project:
@@ -394,19 +405,6 @@ function AgentPanelBody({
     void send(pending)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, keyReady])
-
-  function onSaveKey(e: FormEvent) {
-    e.preventDefault()
-    if (!uid) return
-    setKeyError(null)
-    try {
-      setApiKey(uid, keyDraft)
-      setKeyDraft('')
-      setKeyReady(true)
-    } catch (err) {
-      setKeyError(err instanceof Error ? err.message : 'Could not save key')
-    }
-  }
 
   function startNewChat() {
     if (busy) return
@@ -509,46 +507,29 @@ function AgentPanelBody({
         </div>
       ) : null}
 
-      {!keyReady ? (
-        <div className="ai-key-card">
-          <p className="ai-key-card-title">Add your Gemini API key to use the agent</p>
-          <p className="ai-key-card-hint">
-            Your key stays in this browser. It is sent only to the AI provider you pick.
-          </p>
-          <form onSubmit={onSaveKey} className="ai-key-form">
-            <label className="field">
-              <span>API key</span>
-              <input
-                type="password"
-                autoComplete="off"
-                value={keyDraft}
-                onChange={(e) => setKeyDraft(e.target.value)}
-                placeholder="Paste your Gemini API key"
-                spellCheck={false}
-              />
-            </label>
-            {keyError ? (
-              <p className="form-error" role="alert">
-                {keyError}
-              </p>
-            ) : null}
-            <div className="ai-key-actions">
-              <button type="submit" className="btn btn-primary" disabled={!keyDraft.trim()}>
-                Save key
-              </button>
-              <a
-                href="https://aistudio.google.com/apikey"
-                target="_blank"
-                rel="noreferrer"
-                className="settings-link"
-              >
-                Get a key
-              </a>
-              <Link to="/settings" className="settings-link" onClick={closeOnOpen}>
-                Open settings
-              </Link>
-            </div>
-          </form>
+      {!keyReady && uid ? (
+        <MissingKeyCard
+          uid={uid}
+          compact
+          onReady={() => {
+            setKeyReady(true)
+            setSelection(resolveActiveSelection(uid))
+            setModelRevision((n) => n + 1)
+          }}
+        />
+      ) : null}
+
+      {keyReady && uid ? (
+        <div className="ai-panel-model-row">
+          <ModelSwitcher
+            uid={uid}
+            value={selection}
+            revision={modelRevision}
+            onChange={(ref) => {
+              setSelection(ref)
+              setSelectedModel(uid, ref)
+            }}
+          />
         </div>
       ) : null}
 
@@ -641,11 +622,13 @@ function AgentPanelBody({
               className="btn btn-ghost"
               onClick={() => {
                 if (!uid) return
-                forgetApiKey(uid)
+                for (const c of listConnections(uid)) removeConnection(uid, c.id)
                 setKeyReady(false)
+                setSelection(null)
+                setModelRevision((n) => n + 1)
               }}
             >
-              Forget key
+              Forget keys
             </button>
           ) : (
             <span />

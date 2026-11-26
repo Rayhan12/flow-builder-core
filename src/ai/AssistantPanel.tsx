@@ -1,15 +1,22 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
 import { Sparkles, X } from 'lucide-react'
 import { useAuth } from '../auth/useAuth'
 import { addMessage, listMessages, markMessageApplied, type DiagramMessage } from '../data/messages'
-import { getUserSettings } from '../data/settings'
 import { saveVersion } from '../data/versions'
 import { autoLayoutDiagram } from '../editor/layout'
 import type { Diagram } from '../schema'
 import { useEditorStore } from '../store/editorStore'
+import { MissingKeyCard } from './components/MissingKeyCard'
+import { ModelSwitcher } from './components/ModelSwitcher'
 import { createGeminiProvider } from './gemini'
-import { forgetApiKey, getApiKey, hasApiKey, setApiKey } from './keyStorage'
+import { hasApiKey } from './keyStorage'
+import { getConnection, listConnections, removeConnection } from './providers/connections'
+import { getProvider } from './providers/factory'
+import {
+  resolveActiveSelection,
+  setSelectedModel,
+  type SelectedModelRef,
+} from './providers/selectedModel'
 import {
   parseAiResponseText,
   previewFromResponse,
@@ -67,10 +74,9 @@ export function AssistantPanel({
   const [items, setItems] = useState<ChatItem[]>([])
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
-  const [model, setModel] = useState('gemini-2.5-flash')
+  const [selection, setSelection] = useState<SelectedModelRef | null>(null)
   const [keyEpoch, setKeyEpoch] = useState(0)
-  const [keyDraft, setKeyDraft] = useState('')
-  const [keyError, setKeyError] = useState<string | null>(null)
+  const [modelRevision, setModelRevision] = useState(0)
   const [loadError, setLoadError] = useState<string | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const lastAppliedRef = useRef<string | null>(null)
@@ -82,9 +88,7 @@ export function AssistantPanel({
     let cancelled = false
     void (async () => {
       try {
-        const settings = await getUserSettings(uid)
-        if (cancelled) return
-        setModel(settings.aiModel)
+        if (!cancelled) setSelection(resolveActiveSelection(uid))
         const messages = await listMessages(uid, projectId, diagramId)
         if (cancelled) return
         setItems(messagesToItems(messages))
@@ -105,26 +109,14 @@ export function AssistantPanel({
     if (el) el.scrollTop = el.scrollHeight
   }, [items, open, busy])
 
-  function onSaveKeyInline(e: FormEvent) {
-    e.preventDefault()
-    if (!uid) return
-    setKeyError(null)
-    try {
-      setApiKey(uid, keyDraft)
-      setKeyDraft('')
-      setKeyEpoch((n) => n + 1)
-    } catch (err) {
-      setKeyError(err instanceof Error ? err.message : 'Could not save key')
-    }
-  }
-
   async function sendPrompt(text: string) {
     if (!uid || !diagram || busy) return
     const trimmed = text.trim()
     if (!trimmed) return
 
-    const apiKey = getApiKey(uid)
-    if (!apiKey) {
+    const active = selection ?? resolveActiveSelection(uid)
+    const conn = active ? getConnection(uid, active.connectionId) : null
+    if (!active || !conn) {
       setKeyEpoch((n) => n + 1)
       return
     }
@@ -146,11 +138,28 @@ export function AssistantPanel({
           return { role: 'assistant' as const, text: i.summary }
         })
 
-      const provider = providerFactory(apiKey, model)
-      const raw = await provider.generate({
-        system: SYSTEM_PROMPT,
-        messages: buildPromptMessages(diagram, history, trimmed),
-      })
+      let raw: string
+      if (conn.provider === 'gemini' && providerFactory) {
+        const legacy = providerFactory(conn.apiKey, active.model)
+        raw = await legacy.generate({
+          system: SYSTEM_PROMPT,
+          messages: buildPromptMessages(diagram, history, trimmed),
+        })
+      } else {
+        const provider = getProvider(conn.provider)
+        const result = await provider.chat(conn, {
+          model: active.model,
+          system: SYSTEM_PROMPT,
+          messages: buildPromptMessages(diagram, history, trimmed).map((m) => ({
+            role: m.role,
+            text: m.text,
+          })),
+          jsonMode: true,
+          temperature: 0.2,
+        })
+        raw = (result.text ?? '').trim()
+        if (!raw) throw new Error('Empty response from the model')
+      }
 
       const parsed = parseAiResponseText(raw)
       if (!parsed.ok) {
@@ -293,46 +302,29 @@ export function AssistantPanel({
         </button>
       </div>
 
-      {!keyPresent ? (
-        <div className="ai-key-card">
-          <p className="ai-key-card-title">Add your Gemini API key to use the assistant</p>
-          <p className="ai-key-card-hint">
-            Your key stays in this browser. It is sent only to the AI provider you pick.
-          </p>
-          <form onSubmit={onSaveKeyInline} className="ai-key-form">
-            <label className="field">
-              <span>API key</span>
-              <input
-                type="password"
-                autoComplete="off"
-                value={keyDraft}
-                onChange={(e) => setKeyDraft(e.target.value)}
-                placeholder="Paste your Gemini API key"
-                spellCheck={false}
-              />
-            </label>
-            {keyError ? (
-              <p className="form-error" role="alert">
-                {keyError}
-              </p>
-            ) : null}
-            <div className="ai-key-actions">
-              <button type="submit" className="btn btn-primary" disabled={!keyDraft.trim()}>
-                Save key
-              </button>
-              <a
-                href="https://aistudio.google.com/apikey"
-                target="_blank"
-                rel="noreferrer"
-                className="settings-link"
-              >
-                Get a key
-              </a>
-              <Link to="/settings" className="settings-link">
-                Open settings
-              </Link>
-            </div>
-          </form>
+      {!keyPresent && uid ? (
+        <MissingKeyCard
+          uid={uid}
+          compact
+          onReady={() => {
+            setKeyEpoch((n) => n + 1)
+            setSelection(resolveActiveSelection(uid))
+            setModelRevision((n) => n + 1)
+          }}
+        />
+      ) : null}
+
+      {keyPresent && uid ? (
+        <div className="ai-panel-model-row">
+          <ModelSwitcher
+            uid={uid}
+            value={selection}
+            revision={modelRevision}
+            onChange={(ref) => {
+              setSelection(ref)
+              setSelectedModel(uid, ref)
+            }}
+          />
         </div>
       ) : null}
 
@@ -462,11 +454,13 @@ export function AssistantPanel({
               className="btn btn-ghost"
               onClick={() => {
                 if (!uid) return
-                forgetApiKey(uid)
+                for (const c of listConnections(uid)) removeConnection(uid, c.id)
                 setKeyEpoch((n) => n + 1)
+                setSelection(null)
+                setModelRevision((n) => n + 1)
               }}
             >
-              Forget key
+              Forget keys
             </button>
           ) : (
             <span />
