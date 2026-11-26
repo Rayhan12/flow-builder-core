@@ -10,6 +10,7 @@ import {
 import type { FlowNode } from '../flowTypes'
 import { getLucideIcon } from '../icons'
 import { KIND_META } from '../kinds'
+import { ExpandableText } from '../ui/ExpandableText'
 import { SideHandles, type SideHandleId } from './SideHandles'
 
 type BranchHandle = { id: string; label: string; color?: string }
@@ -159,7 +160,13 @@ function FlowNodeShellInner({
             </div>
           </div>
 
-          {node.description ? <p className="flow-node-desc">{node.description}</p> : null}
+          {node.description ? (
+            <ExpandableText
+              text={node.description}
+              className="flow-node-desc-wrap"
+              testId={`node-desc-${node.id}`}
+            />
+          ) : null}
         </>
       ) : null}
 
