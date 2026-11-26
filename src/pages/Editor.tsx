@@ -387,8 +387,8 @@ function EditorInner() {
   // Zoom to fit once nodes are measured: on open when the doc asks for it
   // (fitPending/layoutPending or off-screen nodes) and after AI/MCP edits.
   // Fitting before React Flow measures nodes gives a wrong zoom.
-  // Server/MCP layouts use estimated sizes; after the browser measures real card
-  // sizes, auto-resolve conflicts so the user never sees the overlap badge.
+  // Measure-and-resolve (push-apart / full layout) runs ONLY for a fresh
+  // layoutPending doc from AI/MCP. Normal opens never move user-placed cards.
   const nodesInitialized = useNodesInitialized()
   const handledFitRequest = useRef(0)
   const measureResolveBusy = useRef(false)
@@ -400,8 +400,8 @@ function EditorInner() {
   useEffect(() => {
     const wantsRequest = fitRequest > handledFitRequest.current
     const needsFit = wantsRequest || !!diagram?.fitPending
-    const needsMeasureResolve =
-      !!diagram?.fitPending || !!diagram?.layoutPending
+    // Only AI/MCP-generated layouts (layoutPending) may auto-move nodes.
+    const needsMeasureResolve = !!diagram?.layoutPending
     if (!needsFit && !needsMeasureResolve) return
     if (!nodesInitialized) return
     if (measureResolveBusy.current) return
@@ -480,7 +480,8 @@ function EditorInner() {
       }
 
       requestAnimationFrame(() => {
-        void fitView({ padding: 0.2, duration: 280, maxZoom: 1.25 })
+        // Tall flows need room for the minimap / controls; allow very low zoom.
+        void fitView({ padding: 0.28, duration: 280, maxZoom: 1.25, minZoom: 0.05 })
         useEditorStore.setState((s) => {
           if (!s.diagram?.fitPending && !s.diagram?.layoutPending) return s
           return {
@@ -489,19 +490,6 @@ function EditorInner() {
           }
         })
         measureResolveBusy.current = false
-        // Cards can still grow after fitPending clears; one late resolve pass.
-        window.setTimeout(() => {
-          if (cancelled) return
-          const late = useEditorStore.getState().diagram
-          if (!late) return
-          const still = detectConflicts(late.nodes, late.edges, { direction: 'DOWN' })
-          if (still.nodeOverlaps.length === 0 && still.edgesThroughNodes.length === 0) return
-          const fixed = resolveConflicts(late.nodes, late.edges, {
-            direction: 'DOWN',
-            maxPasses: 20,
-          })
-          applyNodeLayout(fixed.nodes, fixed.edges)
-        }, 500)
       })
     }
 
@@ -573,7 +561,9 @@ function EditorInner() {
             : { direction }
         const laid = await layoutDiagram(current.nodes, current.edges, options)
         applyNodeLayout(laid.nodes, laid.edges)
-        requestAnimationFrame(() => fitView({ padding: 0.2, duration: 280 }))
+        requestAnimationFrame(() =>
+          fitView({ padding: 0.28, duration: 280, maxZoom: 1.25, minZoom: 0.05 }),
+        )
       } catch (err) {
         setIoError(err instanceof Error ? err.message : 'Layout failed')
       } finally {
@@ -587,7 +577,7 @@ function EditorInner() {
   const fixLayoutConflicts = useCallback(() => {
     const state = useEditorStore.getState()
     const current = state.diagram
-    if (!current || layoutBusy) return
+    if (!current || layoutBusy || state.readOnly) return
     setLayoutBusy(true)
     void (async () => {
       try {
@@ -598,7 +588,9 @@ function EditorInner() {
           fixed = { nodes: laid.nodes, edges: laid.edges, report: still }
         }
         applyNodeLayout(fixed.nodes, fixed.edges)
-        requestAnimationFrame(() => fitView({ padding: 0.2, duration: 200 }))
+        requestAnimationFrame(() =>
+          fitView({ padding: 0.28, duration: 200, maxZoom: 1.25, minZoom: 0.05 }),
+        )
       } finally {
         setLayoutBusy(false)
       }
@@ -1264,7 +1256,7 @@ function EditorInner() {
             >
               <LayoutTemplate size={16} />
             </button>
-            {conflictSummary ? (
+            {conflictSummary && !viewOnly ? (
               <div
                 className="layout-conflict-badge"
                 data-testid="layout-conflict-badge"

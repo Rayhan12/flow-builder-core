@@ -68,7 +68,7 @@ describe('autoLayoutDiagram', () => {
     expect(byId.yes.position.x).toBeLessThan(byId.no.position.x)
   })
 
-  it('incremental place keeps manually positioned nodes and clears overlaps', () => {
+  it('incremental place keeps existing nodes fixed (new node seeks free spot)', () => {
     const a = createNodeOfKind('start', { x: 0, y: 0 }, { id: 'a' })
     const b = {
       ...createNodeOfKind('step', { x: 40, y: 180 }, { id: 'b' }),
@@ -79,10 +79,12 @@ describe('autoLayoutDiagram', () => {
       { id: 'e1', source: 'a', target: 'b' },
       { id: 'e2', source: 'b', target: 'c' },
     ]
+    const beforeA = { ...a.position }
     const result = placeNodesIncremental([a, b, c], edges, ['c'], 'DOWN')
     const byId = Object.fromEntries(result.nodes.map((n) => [n.id, n]))
+    expect(byId.a.position).toEqual(beforeA)
     expect(byId.b.position).toEqual({ x: 40, y: 180 })
-    expect(hasOverlappingNodes(result.nodes)).toBe(false)
+    expect(byId.c.position.y).toBeGreaterThan(byId.b.position.y)
   })
 
   it('lays out dozens of nodes quickly on the main thread (worker used above threshold in browser)', async () => {

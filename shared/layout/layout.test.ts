@@ -154,20 +154,36 @@ describe('layoutDiagram', () => {
 })
 
 describe('placeNodesIncremental', () => {
-  it('keeps manually positioned nodes fixed and leaves no overlaps', () => {
+  it('never moves existing nodes (manual or not) when placing a new one', () => {
     const nodes: LayoutNodeLike[] = [
       node('a', 'start', { x: 0, y: 0 }),
       node('b', 'step', { x: 0, y: 200 }, { manuallyPositioned: true }),
       node('c', 'step', { x: 0, y: 200 }), // piled on b — new
     ]
     const edges = [edge('e1', 'a', 'b'), edge('e2', 'b', 'c')]
+    const beforeA = { ...nodes[0].position }
     const beforeB = { ...nodes[1].position }
     const result = placeNodesIncremental(nodes, edges, ['c'], { direction: 'DOWN' })
     const byId = Object.fromEntries(result.nodes.map((n) => [n.id, n]))
+    expect(byId.a.position).toEqual(beforeA)
     expect(byId.b.position.x).toBe(beforeB.x)
     expect(byId.b.position.y).toBe(beforeB.y)
-    expect(hasOverlappingNodes(result.nodes)).toBe(false)
     expect(byId.c.position.y).toBeGreaterThan(byId.b.position.y)
+  })
+
+  it('does not shift non-manual existing nodes to clear space', () => {
+    const nodes: LayoutNodeLike[] = [
+      node('a', 'step', { x: 0, y: 0 }),
+      node('b', 'step', { x: 0, y: 120 }),
+      node('c', 'step', { x: 50, y: 50 }), // new, near both
+    ]
+    const edges = [edge('e1', 'a', 'c')]
+    const beforeA = { ...nodes[0].position }
+    const beforeB = { ...nodes[1].position }
+    const result = placeNodesIncremental(nodes, edges, ['c'], { direction: 'DOWN' })
+    const byId = Object.fromEntries(result.nodes.map((n) => [n.id, n]))
+    expect(byId.a.position).toEqual(beforeA)
+    expect(byId.b.position).toEqual(beforeB)
   })
 
   it('places new nodes near the anchor', () => {

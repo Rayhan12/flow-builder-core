@@ -1,9 +1,11 @@
 /**
- * Incremental placement: place newly added nodes near their anchors and shift
- * only affected (downstream) nodes so nothing overlaps. Prefer not to move
- * manuallyPositioned nodes; never leave overlaps.
+ * Incremental placement: place newly added nodes near their anchors without
+ * moving existing nodes. Overlaps with user-placed cards are allowed; only the
+ * new node seeks a free spot. Edges are re-routed afterward (never by pushing
+ * cards apart).
  */
-import { detectConflicts, resolveConflicts } from './conflicts.ts'
+import { detectConflicts } from './conflicts.ts'
+import { routeEdgesIndependently } from './edgeRouting.ts'
 import { LAYER_SPACING, NODE_NODE_SPACING, defaultNodeSize } from './nodeSizes.ts'
 import type {
   LayoutDirection,
@@ -40,42 +42,6 @@ function overlaps(a: Box, b: Box, gap = NODE_NODE_SPACING / 2): boolean {
     a.y + a.h + gap <= b.y ||
     b.y + b.h + gap <= a.y
   )
-}
-
-function overlapDelta(
-  a: Box,
-  b: Box,
-  direction: LayoutDirection,
-): { dx: number; dy: number } {
-  if (!overlaps(a, b, 0)) return { dx: 0, dy: 0 }
-  if (direction === 'RIGHT') {
-    const push = a.x + a.w + NODE_NODE_SPACING - b.x
-    return { dx: Math.max(0, push), dy: 0 }
-  }
-  const push = a.y + a.h + LAYER_SPACING - b.y
-  return { dx: 0, dy: Math.max(0, push) }
-}
-
-/** Nodes reachable following edges forward from `roots`. */
-function downstreamIds(
-  roots: Iterable<string>,
-  edges: LayoutEdgeLike[],
-): Set<string> {
-  const out = new Map<string, string[]>()
-  for (const e of edges) {
-    const list = out.get(e.source) ?? []
-    list.push(e.target)
-    out.set(e.source, list)
-  }
-  const seen = new Set<string>()
-  const queue = [...roots]
-  while (queue.length) {
-    const id = queue.pop()!
-    if (seen.has(id)) continue
-    seen.add(id)
-    for (const next of out.get(id) ?? []) queue.push(next)
-  }
-  return seen
 }
 
 function branchIndex(
@@ -118,6 +84,10 @@ function preferredPosition(
   }
 }
 
+/**
+ * Find a free spot for a NEW node only. Existing occupied boxes never move;
+ * the candidate walks along the flow direction until clear of them.
+ */
 function findFreeSpot(
   preferred: { x: number; y: number },
   size: { w: number; h: number },
@@ -148,66 +118,6 @@ function findFreeSpot(
   return { x: candidate.x, y: candidate.y }
 }
 
-/**
- * Resolve remaining overlaps by shifting movable (preferably non-manual)
- * nodes in the flow direction. Guarantees no bounding-box overlaps.
- */
-function resolveOverlaps(
-  boxes: Box[],
-  movable: Set<string>,
-  direction: LayoutDirection,
-): void {
-  for (let iter = 0; iter < 80; iter++) {
-    let moved = false
-    for (let i = 0; i < boxes.length; i++) {
-      for (let j = i + 1; j < boxes.length; j++) {
-        const a = boxes[i]
-        const b = boxes[j]
-        if (!overlaps(a, b, 0)) continue
-
-        const preferA = movable.has(a.id) && (!a.manual || b.manual)
-        const preferB = movable.has(b.id) && (!b.manual || a.manual)
-        let shiftTarget: Box
-        let other: Box
-        if (preferB && !preferA) {
-          shiftTarget = b
-          other = a
-        } else if (preferA && !preferB) {
-          shiftTarget = a
-          other = b
-        } else if (movable.has(b.id)) {
-          shiftTarget = b
-          other = a
-        } else if (movable.has(a.id)) {
-          shiftTarget = a
-          other = b
-        } else {
-          // Neither marked movable — still must clear overlap; push the lower/righter one.
-          if (direction === 'RIGHT') {
-            shiftTarget = a.x <= b.x ? b : a
-            other = shiftTarget === a ? b : a
-          } else {
-            shiftTarget = a.y <= b.y ? b : a
-            other = shiftTarget === a ? b : a
-          }
-        }
-
-        const delta = overlapDelta(other, shiftTarget, direction)
-        if (delta.dx === 0 && delta.dy === 0) {
-          // Degenerate: force a step.
-          if (direction === 'RIGHT') shiftTarget.x += NODE_NODE_SPACING
-          else shiftTarget.y += LAYER_SPACING
-        } else {
-          shiftTarget.x += delta.dx
-          shiftTarget.y += delta.dy
-        }
-        moved = true
-      }
-    }
-    if (!moved) break
-  }
-}
-
 export function placeNodesIncremental<
   N extends LayoutNodeLike,
   E extends LayoutEdgeLike,
@@ -227,6 +137,11 @@ export function placeNodesIncremental<
   const byId = new Map(nextNodes.map((n) => [n.id, n]))
   const newSet = new Set(newNodeIds)
 
+  // Snapshot existing positions so we can assert they never change.
+  const existingPositions = new Map(
+    nextNodes.filter((n) => !newSet.has(n.id)).map((n) => [n.id, { ...n.position }]),
+  )
+
   const anchors = new Set<string>()
   const newByAnchor = new Map<string, string[]>()
 
@@ -243,9 +158,7 @@ export function placeNodesIncremental<
     }
   }
 
-  const occupied: Box[] = nextNodes
-    .filter((n) => !newSet.has(n.id))
-    .map((n) => toBox(n))
+  const occupied: Box[] = nextNodes.filter((n) => !newSet.has(n.id)).map((n) => toBox(n))
 
   for (const [anchorId, ids] of newByAnchor) {
     const anchor = byId.get(anchorId)
@@ -304,35 +217,27 @@ export function placeNodesIncremental<
     })
   }
 
-  const movable = downstreamIds([...anchors, ...newNodeIds], nextEdges)
-  // Always allow shifting the new nodes.
-  for (const id of newNodeIds) movable.add(id)
-
-  const boxes = nextNodes
-    .filter((n) => !n.parentId)
-    .map((n) => toBox(n))
-  resolveOverlaps(boxes, movable, direction)
-
-  const boxById = new Map(boxes.map((b) => [b.id, b]))
+  // Hard guarantee: never shift an existing node (even if it overlaps the new one).
   for (const node of nextNodes) {
-    const box = boxById.get(node.id)
-    if (!box) continue
-    // Preserve manually positioned coordinates unless we had to move them.
-    if (
-      node.manuallyPositioned &&
-      Math.abs(box.x - node.position.x) < 0.5 &&
-      Math.abs(box.y - node.position.y) < 0.5
-    ) {
-      continue
-    }
-    node.position = { x: box.x, y: box.y }
+    const kept = existingPositions.get(node.id)
+    if (!kept) continue
+    node.position = { x: kept.x, y: kept.y }
   }
 
-  const report = detectConflicts(nextNodes, nextEdges, { direction })
-  if (report.nodeOverlaps.length > 0 || report.edgesThroughNodes.length > 0) {
-    const fixed = resolveConflicts(nextNodes, nextEdges, { direction })
-    return { nodes: fixed.nodes as N[], edges: fixed.edges as E[] }
+  // Re-route edges around cards; never push cards apart for through-edges.
+  const routed = routeEdgesIndependently(
+    nextNodes,
+    nextEdges,
+    (n) => defaultNodeSize(n),
+    direction,
+  )
+  for (const edge of nextEdges) {
+    const pts = routed.get(edge.id)
+    if (pts) edge.waypoints = pts
   }
+
+  // Conflicts may remain (user overlaps); callers show the Fix layout badge.
+  void detectConflicts(nextNodes, nextEdges, { direction })
 
   return { nodes: nextNodes, edges: nextEdges }
 }
