@@ -37,7 +37,12 @@ function sharedValue<T>(values: T[]): T | typeof MIXED {
   return values.every((v) => Object.is(v, first)) ? first : MIXED
 }
 
-export function NodeSidePanel() {
+type PanelProps = {
+  /** When true, show details but block edits. */
+  readOnly?: boolean
+}
+
+export function NodeSidePanel({ readOnly = false }: PanelProps) {
   const diagram = useEditorStore((s) => s.diagram)
   const selectedNodeIds = useEditorStore((s) => s.selectedNodeIds)
   const selectedEdgeIds = useEditorStore((s) => s.selectedEdgeIds)
@@ -84,11 +89,20 @@ export function NodeSidePanel() {
 
   if (selectedNodes.length === 0 && selectedEdges.length === 0) {
     return (
-      <aside className="side-panel" aria-label="Selection details" data-testid="properties-panel">
+      <aside
+        className={`side-panel ${readOnly ? 'is-readonly' : ''}`}
+        aria-label="Selection details"
+        data-testid="properties-panel"
+        data-readonly={readOnly ? 'true' : undefined}
+      >
         <EmptyState
           icon={MousePointerClick}
           title="Nothing selected"
-          hint="Click a node or connector on the canvas to edit it."
+          hint={
+            readOnly
+              ? 'Click a node to highlight its connections.'
+              : 'Click a node or connector on the canvas to edit it.'
+          }
           className="side-panel-empty-state"
         />
       </aside>
@@ -99,7 +113,12 @@ export function NodeSidePanel() {
     const labels = selectedEdges.map((e) => e.label ?? '')
     const labelValue = sharedValue(labels)
     return (
-      <aside className="side-panel" aria-label="Connector details" data-testid="properties-panel">
+      <aside
+        className={`side-panel ${readOnly ? 'is-readonly' : ''}`}
+        aria-label="Connector details"
+        data-testid="properties-panel"
+        data-readonly={readOnly ? 'true' : undefined}
+      >
         <div className="side-panel-header">
           <div className="side-panel-header-text">
             <span className="side-panel-kind">
@@ -111,7 +130,11 @@ export function NodeSidePanel() {
               placeholder={labelValue === MIXED ? MIXED : 'Label'}
               aria-label="Connector label"
               maxLength={200}
-              onChange={(e) => updateEdges(selectedEdgeIds, { label: e.target.value || undefined })}
+              readOnly={readOnly}
+              onChange={(e) => {
+                if (readOnly) return
+                updateEdges(selectedEdgeIds, { label: e.target.value || undefined })
+              }}
             />
           </div>
           <button
@@ -297,7 +320,12 @@ export function NodeSidePanel() {
   }
 
   return (
-    <aside className="side-panel" aria-label="Node details" data-testid="properties-panel">
+    <aside
+      className={`side-panel ${readOnly ? 'is-readonly' : ''}`}
+      aria-label="Node details"
+      data-testid="properties-panel"
+      data-readonly={readOnly ? 'true' : undefined}
+    >
       <div className="side-panel-header">
         <div className="side-panel-header-main">
           <span

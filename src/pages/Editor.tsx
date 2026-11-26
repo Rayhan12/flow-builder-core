@@ -14,6 +14,7 @@ import {
   Redo2,
   Save,
   Search,
+  SlidersHorizontal,
   Sparkles,
   Spline,
   Sun,
@@ -21,7 +22,7 @@ import {
   Upload,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useLocation, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams, useSearchParams } from 'react-router-dom'
 import { AssistantPanel } from '../ai/AssistantPanel'
 import { useAppData } from '../app/useAppData'
 import { useAuth } from '../auth/useAuth'
@@ -201,10 +202,14 @@ function EditorInner() {
   const [snapToGridEnabled, setSnapToGridEnabled] = useState(readSnapPref)
   const [tool, setTool] = useState<CanvasTool>('select')
   const [connectFromId, setConnectFromId] = useState<string | null>(null)
+  const [connectFromHandle, setConnectFromHandle] = useState<string | null>(null)
   const [connectTargetId, setConnectTargetId] = useState<string | null>(null)
   const [showNodeHints, setShowNodeHints] = useState(readShowNodeHints)
   const [viewMenuOpen, setViewMenuOpen] = useState(false)
   const [connectorHint, setConnectorHint] = useState<string | null>(null)
+  const [viewFocusNodeId, setViewFocusNodeId] = useState<string | null>(null)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const viewOnly = searchParams.get('mode') === 'view'
   const savingRef = useRef(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const ioMenuRef = useRef<HTMLDivElement>(null)
@@ -214,6 +219,29 @@ function EditorInner() {
   const uid = user?.uid
   const location = useLocation()
   const selectionKey = `${selectedNodeIds.join(',')}|${selectedEdgeIds.join(',')}`
+
+  const setViewOnly = useCallback(
+    (next: boolean) => {
+      setSearchParams(
+        (prev) => {
+          const params = new URLSearchParams(prev)
+          if (next) params.set('mode', 'view')
+          else params.delete('mode')
+          return params
+        },
+        { replace: true },
+      )
+      if (next) {
+        setTool('select')
+        setConnectFromId(null)
+        setConnectFromHandle(null)
+        setConnectTargetId(null)
+      } else {
+        setViewFocusNodeId(null)
+      }
+    },
+    [setSearchParams],
+  )
 
   const dismissViewMenu = useCallback(() => setViewMenuOpen(false), [])
   useDismiss({
@@ -234,17 +262,19 @@ function EditorInner() {
   })
 
   function enterConnectTool() {
+    if (viewOnly) return
     setTool('connect')
     setConnectFromId(null)
+    setConnectFromHandle(null)
     setConnectTargetId(null)
     try {
       if (localStorage.getItem('flow-builder-connector-hint') !== '1') {
         localStorage.setItem('flow-builder-connector-hint', '1')
-        setConnectorHint('Click a node, then another to connect. Esc returns to select.')
+        setConnectorHint('Click a node, then another to connect. Esc cancels the arrow.')
         window.setTimeout(() => setConnectorHint(null), 4000)
       }
     } catch {
-      setConnectorHint('Click a node, then another to connect. Esc returns to select.')
+      setConnectorHint('Click a node, then another to connect. Esc cancels the arrow.')
       window.setTimeout(() => setConnectorHint(null), 4000)
     }
   }
@@ -252,6 +282,7 @@ function EditorInner() {
   function enterSelectTool() {
     setTool('select')
     setConnectFromId(null)
+    setConnectFromHandle(null)
     setConnectTargetId(null)
   }
 
@@ -464,10 +495,28 @@ function EditorInner() {
           return
         }
         if (tool === 'connect') {
+          if (connectFromId) {
+            setConnectFromId(null)
+            setConnectFromHandle(null)
+            setConnectTargetId(null)
+            return
+          }
           enterSelectTool()
           return
         }
+        if (viewOnly && viewFocusNodeId) {
+          setViewFocusNodeId(null)
+          return
+        }
         if (!typing) clearSelection()
+        return
+      }
+
+      if (viewOnly) {
+        if (meta && (key === 'k' || key === '/')) {
+          e.preventDefault()
+          setCommandOpen(true)
+        }
         return
       }
 
@@ -624,6 +673,9 @@ function EditorInner() {
     zoomToSelection,
     setZoomLevel,
     tool,
+    connectFromId,
+    viewOnly,
+    viewFocusNodeId,
     runLayout,
   ])
 
@@ -698,8 +750,19 @@ function EditorInner() {
     setEditingTitle(false)
   }
 
-  const commandActions = useMemo(
-    () => [
+  const commandActions = useMemo(() => {
+    const viewActions = [
+      { id: 'fit', label: 'Zoom to fit', hint: 'View' },
+      { id: 'shortcuts', label: 'Keyboard shortcuts', hint: 'Help', keywords: 'shift ?' },
+      {
+        id: 'exit-view',
+        label: 'Exit view only',
+        hint: 'View',
+        keywords: 'edit mode',
+      },
+    ]
+    if (viewOnly) return viewActions
+    return [
       { id: 'undo', label: 'Undo', hint: 'Edit', keywords: 'history' },
       { id: 'redo', label: 'Redo', hint: 'Edit', keywords: 'history' },
       { id: 'group', label: 'Group selection', hint: 'Arrange', keywords: 'cmd g' },
@@ -726,14 +789,20 @@ function EditorInner() {
       { id: 'delete', label: 'Delete selection', hint: 'Edit', keywords: 'remove' },
       { id: 'shortcuts', label: 'Keyboard shortcuts', hint: 'Help', keywords: 'shift ?' },
       { id: 'fit', label: 'Zoom to fit', hint: 'View' },
-    ],
-    [],
-  )
+      {
+        id: 'enter-view',
+        label: 'View only',
+        hint: 'View',
+        keywords: 'read only share',
+      },
+    ]
+  }, [viewOnly])
 
   const onCommandSelect = useCallback(
     (result: CommandPaletteResult) => {
       setCommandOpen(false)
       if (result.type === 'add') {
+        if (viewOnly) return
         const cursor = getLastFlowPoint()
         if (cursor) {
           addNode(
@@ -750,6 +819,7 @@ function EditorInner() {
         return
       }
       if (result.type === 'focus') {
+        if (viewOnly) setViewFocusNodeId(result.nodeId)
         setSelection([result.nodeId], [])
         requestAnimationFrame(() =>
           fitView({ padding: 0.35, duration: 200, nodes: [{ id: result.nodeId }] }),
@@ -757,62 +827,68 @@ function EditorInner() {
         return
       }
       switch (result.actionId) {
+        case 'enter-view':
+          setViewOnly(true)
+          break
+        case 'exit-view':
+          setViewOnly(false)
+          break
         case 'undo':
-          undo()
+          if (!viewOnly) undo()
           break
         case 'redo':
-          redo()
+          if (!viewOnly) redo()
           break
         case 'group':
-          groupSelection()
+          if (!viewOnly) groupSelection()
           break
         case 'ungroup':
-          ungroupSelection()
+          if (!viewOnly) ungroupSelection()
           break
         case 'duplicate':
-          duplicateSelection()
+          if (!viewOnly) duplicateSelection()
           break
         case 'hide':
-          if (selectedNodeIds.length) toggleHidden(selectedNodeIds)
+          if (!viewOnly && selectedNodeIds.length) toggleHidden(selectedNodeIds)
           break
         case 'lock':
-          if (selectedNodeIds.length) toggleLocked(selectedNodeIds)
+          if (!viewOnly && selectedNodeIds.length) toggleLocked(selectedNodeIds)
           break
         case 'align-left':
-          alignSelection('left')
+          if (!viewOnly) alignSelection('left')
           break
         case 'align-center':
-          alignSelection('center')
+          if (!viewOnly) alignSelection('center')
           break
         case 'align-right':
-          alignSelection('right')
+          if (!viewOnly) alignSelection('right')
           break
         case 'align-top':
-          alignSelection('top')
+          if (!viewOnly) alignSelection('top')
           break
         case 'align-middle':
-          alignSelection('middle')
+          if (!viewOnly) alignSelection('middle')
           break
         case 'align-bottom':
-          alignSelection('bottom')
+          if (!viewOnly) alignSelection('bottom')
           break
         case 'distribute-h':
-          distributeSelection('horizontal')
+          if (!viewOnly) distributeSelection('horizontal')
           break
         case 'distribute-v':
-          distributeSelection('vertical')
+          if (!viewOnly) distributeSelection('vertical')
           break
         case 'tidy':
-          tidySelection()
+          if (!viewOnly) tidySelection()
           break
         case 'auto-arrange':
-          void runLayout('DOWN')
+          if (!viewOnly) void runLayout('DOWN')
           break
         case 'select-all':
-          selectAll()
+          if (!viewOnly) selectAll()
           break
         case 'delete':
-          if (selectedNodeIds.length) removeNodes(selectedNodeIds)
+          if (!viewOnly && selectedNodeIds.length) removeNodes(selectedNodeIds)
           break
         case 'shortcuts':
           setShortcutsOpen(true)
@@ -842,6 +918,8 @@ function EditorInner() {
       selectAll,
       removeNodes,
       runLayout,
+      viewOnly,
+      setViewOnly,
     ],
   )
 
@@ -945,7 +1023,7 @@ function EditorInner() {
               className="btn btn-ghost btn-icon"
               aria-label="Undo"
               title="Undo"
-              disabled={past.length === 0}
+              disabled={viewOnly || past.length === 0}
               onClick={() => undo()}
             >
               <Undo2 size={16} />
@@ -955,7 +1033,7 @@ function EditorInner() {
               className="btn btn-ghost btn-icon"
               aria-label="Redo"
               title="Redo"
-              disabled={future.length === 0}
+              disabled={viewOnly || future.length === 0}
               onClick={() => redo()}
             >
               <Redo2 size={16} />
@@ -984,12 +1062,24 @@ function EditorInner() {
               aria-pressed={tool === 'connect'}
               title="Connector tool (C)"
               data-testid="connector-tool"
+              disabled={viewOnly}
               onClick={() => {
                 if (tool === 'connect') enterSelectTool()
                 else enterConnectTool()
               }}
             >
               <Spline size={16} />
+            </button>
+            <button
+              type="button"
+              className={`btn btn-ghost btn-icon ${viewOnly ? 'is-active' : ''}`}
+              aria-label="View only"
+              aria-pressed={viewOnly}
+              title="View only. Shared links work for the owner while rules are per user (no public sharing yet)."
+              data-testid="view-only-toggle"
+              onClick={() => setViewOnly(!viewOnly)}
+            >
+              <Eye size={16} />
             </button>
             <div className="view-menu" ref={viewMenuRef}>
               <button
@@ -1002,7 +1092,7 @@ function EditorInner() {
                 data-testid="view-menu"
                 onClick={() => setViewMenuOpen((v) => !v)}
               >
-                <Eye size={16} />
+                <SlidersHorizontal size={16} />
               </button>
               {viewMenuOpen ? (
                 <div className="view-menu-popover" role="menu" aria-label="View settings">
@@ -1038,7 +1128,7 @@ function EditorInner() {
               aria-label="Auto-arrange"
               title="Auto-arrange (Ctrl/Cmd+Shift+L)"
               data-testid="auto-arrange"
-              disabled={layoutBusy || diagram.nodes.length === 0}
+              disabled={viewOnly || layoutBusy || diagram.nodes.length === 0}
               onClick={() => void runLayout('DOWN')}
             >
               <LayoutTemplate size={16} />
@@ -1166,7 +1256,12 @@ function EditorInner() {
               type="button"
               className="btn btn-secondary"
               onClick={() => void persist()}
-              disabled={saveStatus === 'saving' || saveStatus === 'saved' || saveStatus === 'idle'}
+              disabled={
+                viewOnly ||
+                saveStatus === 'saving' ||
+                saveStatus === 'saved' ||
+                saveStatus === 'idle'
+              }
             >
               <Save size={16} aria-hidden />
               Save
@@ -1175,6 +1270,7 @@ function EditorInner() {
               type="button"
               className="btn btn-ghost"
               aria-pressed={assistantOpen}
+              disabled={viewOnly}
               onClick={() => setAssistantOpen((v) => !v)}
             >
               <Sparkles size={16} aria-hidden />
@@ -1192,53 +1288,66 @@ function EditorInner() {
         </div>
       </header>
 
-      <div className={`editor-body ${assistantOpen ? 'has-ai-panel' : ''}`}>
-        <div className="editor-left">
-          <div className="editor-left-tabs" role="tablist" aria-label="Left panel">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={leftTab === 'assets'}
-              className={`editor-left-tab ${leftTab === 'assets' ? 'is-active' : ''}`}
-              onClick={() => setLeftTab('assets')}
-            >
-              Assets
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={leftTab === 'layers'}
-              className={`editor-left-tab ${leftTab === 'layers' ? 'is-active' : ''}`}
-              data-testid="layers-tab"
-              onClick={() => setLeftTab('layers')}
-            >
-              Layers
-            </button>
+      <div
+        className={`editor-body ${assistantOpen ? 'has-ai-panel' : ''} ${viewOnly ? 'is-view-only' : ''}`}
+        data-testid="editor-body"
+        data-view-only={viewOnly ? 'true' : undefined}
+      >
+        {!viewOnly ? (
+          <div className="editor-left" data-testid="editor-left-panel">
+            <div className="editor-left-tabs" role="tablist" aria-label="Left panel">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={leftTab === 'assets'}
+                className={`editor-left-tab ${leftTab === 'assets' ? 'is-active' : ''}`}
+                onClick={() => setLeftTab('assets')}
+              >
+                Assets
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={leftTab === 'layers'}
+                className={`editor-left-tab ${leftTab === 'layers' ? 'is-active' : ''}`}
+                data-testid="layers-tab"
+                onClick={() => setLeftTab('layers')}
+              >
+                Layers
+              </button>
+            </div>
+            {leftTab === 'assets' ? (
+              <NodePalette onAdd={onAddKind} diagramTitle={diagram.title} />
+            ) : (
+              <LayersPanel />
+            )}
           </div>
-          {leftTab === 'assets' ? (
-            <NodePalette onAdd={onAddKind} diagramTitle={diagram.title} />
-          ) : (
-            <LayersPanel />
-          )}
-        </div>
+        ) : null}
         <Canvas
           gridMode={gridMode}
           showMinimap={showMinimap}
           snapToGridEnabled={snapToGridEnabled}
-          tool={tool}
-          connectFromId={connectFromId}
+          tool={viewOnly ? 'select' : tool}
+          connectFromId={viewOnly ? null : connectFromId}
           onConnectFromChange={setConnectFromId}
-          connectTargetId={connectTargetId}
+          connectFromHandle={viewOnly ? null : connectFromHandle}
+          onConnectFromHandleChange={setConnectFromHandle}
+          connectTargetId={viewOnly ? null : connectTargetId}
           onConnectTargetChange={setConnectTargetId}
-          onDropKind={onDropKind}
+          viewOnly={viewOnly}
+          viewFocusNodeId={viewFocusNodeId}
+          onViewFocusChange={setViewFocusNodeId}
+          onDropKind={viewOnly ? undefined : onDropKind}
           emptyAction={
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => setCommandOpen(true)}
-            >
-              Add a node
-            </button>
+            viewOnly ? undefined : (
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => setCommandOpen(true)}
+              >
+                Add a node
+              </button>
+            )
           }
         />
         {connectorHint ? (
@@ -1246,7 +1355,7 @@ function EditorInner() {
             {connectorHint}
           </div>
         ) : null}
-        {assistantOpen && projectId && diagramId ? (
+        {assistantOpen && projectId && diagramId && !viewOnly ? (
           <AssistantPanel
             open={assistantOpen}
             onClose={() => setAssistantOpen(false)}
@@ -1254,7 +1363,7 @@ function EditorInner() {
             diagramId={diagramId}
           />
         ) : (
-          <NodeSidePanel />
+          <NodeSidePanel readOnly={viewOnly} />
         )}
       </div>
 
@@ -1262,6 +1371,7 @@ function EditorInner() {
         open={commandOpen}
         nodes={diagram.nodes}
         actions={commandActions}
+        allowAdd={!viewOnly}
         onClose={() => setCommandOpen(false)}
         onSelect={onCommandSelect}
       />

@@ -16,6 +16,8 @@ type Props = {
   onSelect: (result: CommandPaletteResult) => void
   /** Extra action rows (group, align, hide, etc.). */
   actions?: Array<{ id: string; label: string; hint?: string; keywords?: string }>
+  /** When false, hide "Add node" rows (view-only mode). */
+  allowAdd?: boolean
 }
 
 type Row =
@@ -23,7 +25,14 @@ type Row =
   | { key: string; kind: 'add'; nodeKind: NodeKind; label: string; hint: string }
   | { key: string; kind: 'focus'; nodeId: string; label: string; hint: string }
 
-export function CommandPalette({ open, nodes, onClose, onSelect, actions = [] }: Props) {
+export function CommandPalette({
+  open,
+  nodes,
+  onClose,
+  onSelect,
+  actions = [],
+  allowAdd = true,
+}: Props) {
   if (!open) return null
   return (
     <CommandPaletteDialog
@@ -31,6 +40,7 @@ export function CommandPalette({ open, nodes, onClose, onSelect, actions = [] }:
       onClose={onClose}
       onSelect={onSelect}
       actions={actions}
+      allowAdd={allowAdd}
     />
   )
 }
@@ -40,11 +50,13 @@ function CommandPaletteDialog({
   onClose,
   onSelect,
   actions,
+  allowAdd,
 }: {
   nodes: DiagramNode[]
   onClose: () => void
   onSelect: (result: CommandPaletteResult) => void
   actions: Array<{ id: string; label: string; hint?: string; keywords?: string }>
+  allowAdd: boolean
 }) {
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
@@ -76,21 +88,23 @@ function CommandPaletteDialog({
         hint: a.hint ?? 'Action',
       }))
 
-    const addRows: Row[] = PALETTE_KINDS.filter((kind) => {
-      if (!q) return true
-      const meta = KIND_META[kind]
-      return (
-        meta.label.toLowerCase().includes(q) ||
-        meta.hint.toLowerCase().includes(q) ||
-        kind.includes(q)
-      )
-    }).map((kind) => ({
-      key: `add-${kind}`,
-      kind: 'add' as const,
-      nodeKind: kind,
-      label: `Add ${KIND_META[kind].label}`,
-      hint: KIND_META[kind].hint,
-    }))
+    const addRows: Row[] = !allowAdd
+      ? []
+      : PALETTE_KINDS.filter((kind) => {
+          if (!q) return true
+          const meta = KIND_META[kind]
+          return (
+            meta.label.toLowerCase().includes(q) ||
+            meta.hint.toLowerCase().includes(q) ||
+            kind.includes(q)
+          )
+        }).map((kind) => ({
+          key: `add-${kind}`,
+          kind: 'add' as const,
+          nodeKind: kind,
+          label: `Add ${KIND_META[kind].label}`,
+          hint: KIND_META[kind].hint,
+        }))
 
     const focusRows: Row[] = nodes
       .filter((n) => {
@@ -117,7 +131,7 @@ function CommandPaletteDialog({
     // Prefer actions and find-node hits when searching; otherwise show add + actions.
     if (q) return [...actionRows, ...focusRows, ...addRows]
     return [...actionRows, ...addRows]
-  }, [nodes, query, actions])
+  }, [nodes, query, actions, allowAdd])
 
   useEffect(() => {
     const t = window.setTimeout(() => inputRef.current?.focus(), 0)

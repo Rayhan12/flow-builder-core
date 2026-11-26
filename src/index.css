@@ -2330,8 +2330,17 @@ input {
 .flow-handle.connecting,
 .flow-handle-connecting,
 .react-flow__node.is-connect-source .flow-handle,
-.react-flow__node.is-connect-target .flow-handle {
+.react-flow__node.is-connect-target .flow-handle,
+.react-flow.is-connector-tool .flow-handle {
   opacity: 1;
+}
+
+/* Keep the startable source handle above the stacked target twin. */
+.react-flow__handle.source {
+  z-index: 2;
+}
+.react-flow__handle.target {
+  z-index: 1;
 }
 
 .flow-handle:hover,
@@ -2376,6 +2385,59 @@ input {
 .react-flow.is-connector-tool,
 .react-flow.is-connector-tool .react-flow__pane {
   cursor: crosshair;
+}
+
+.react-flow.is-connector-tool .react-flow__node {
+  cursor: crosshair;
+}
+
+.react-flow.is-connector-tool .react-flow__node.draggable {
+  cursor: crosshair;
+}
+
+.connect-preview-layer {
+  z-index: 5;
+}
+
+.react-flow.is-view-only .react-flow__node.is-view-dimmed,
+.react-flow.is-view-only .react-flow__edge.is-view-dimmed {
+  opacity: 0.3;
+}
+
+.react-flow.is-view-only .react-flow__node.is-view-focus .flow-node,
+.react-flow.is-view-only .react-flow__node.is-view-focus .flow-group,
+.react-flow.is-view-only .react-flow__node.is-view-focus .flow-shape {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--color-accent-subtle);
+}
+
+.react-flow.is-view-only .react-flow__edge.is-view-flow .react-flow__edge-path,
+.react-flow.is-view-only .react-flow__edge-path.is-view-flow-path {
+  stroke-dasharray: 8 6;
+  animation: view-edge-flow 0.7s linear infinite;
+}
+
+@keyframes view-edge-flow {
+  to {
+    stroke-dashoffset: -28;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .react-flow.is-view-only .react-flow__edge.is-view-flow .react-flow__edge-path,
+  .react-flow.is-view-only .react-flow__edge-path.is-view-flow-path {
+    animation: none;
+  }
+}
+
+.side-panel.is-readonly input,
+.side-panel.is-readonly textarea,
+.side-panel.is-readonly select,
+.side-panel.is-readonly button:not([data-allow-readonly]),
+.side-panel.is-readonly .btn {
+  pointer-events: none;
+  opacity: 0.72;
 }
 
 .view-menu {

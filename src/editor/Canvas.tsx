@@ -7,11 +7,13 @@ import {
   MiniMap,
   Panel,
   ReactFlow,
+  ViewportPortal,
   useReactFlow,
   type Connection,
   type EdgeChangeset,
   type FinalConnectionState,
   type NodeChangeset,
+  type OnConnectStart,
   type OnReconnect,
   type OnSelectionChangeParams,
   type Viewport,
@@ -49,7 +51,12 @@ import {
   distancesWhileDragging,
   type DistanceMeasurement,
 } from './measure'
-import { nearestSideHandle, nearestSidesBetween } from './nearestSide'
+import {
+  nearestSideHandle,
+  nearestSidesBetween,
+  sideMidpoint,
+  type SideHandleId,
+} from './nearestSide'
 import { nodeTypes } from './nodes'
 import {
   dropPositionFromFlowPoint,
@@ -74,8 +81,15 @@ type Props = {
   tool?: CanvasTool
   connectFromId?: string | null
   onConnectFromChange?: (id: string | null) => void
+  /** Explicit source handle when the pending arrow started on a handle. */
+  connectFromHandle?: string | null
+  onConnectFromHandleChange?: (id: string | null) => void
   connectTargetId?: string | null
   onConnectTargetChange?: (id: string | null) => void
+  /** Read-only canvas: pan/zoom and view-focus only. */
+  viewOnly?: boolean
+  viewFocusNodeId?: string | null
+  onViewFocusChange?: (id: string | null) => void
 }
 
 function findGroupAtPoint(
@@ -151,8 +165,13 @@ export function Canvas({
   tool = 'select',
   connectFromId = null,
   onConnectFromChange,
+  connectFromHandle = null,
+  onConnectFromHandleChange,
   connectTargetId = null,
   onConnectTargetChange,
+  viewOnly = false,
+  viewFocusNodeId = null,
+  onViewFocusChange,
 }: Props) {
   const diagram = useEditorStore((s) => s.diagram)
   const selectedNodeIds = useEditorStore((s) => s.selectedNodeIds)
@@ -186,9 +205,28 @@ export function Canvas({
     nodeIds: string[]
     edgeIds: string[]
   } | null>(null)
+  const [connectPreviewPt, setConnectPreviewPt] = useState<{ x: number; y: number } | null>(
+    null,
+  )
   const altDragDupRef = useRef(false)
   const dragDepthRef = useRef(0)
   const reconnectingRef = useRef(false)
+  const connectGestureRef = useRef<{
+    nodeId: string
+    handleId: string | null
+    clientX: number
+    clientY: number
+  } | null>(null)
+  const handleClickHandledRef = useRef(false)
+  const connectFromIdRef = useRef(connectFromId)
+  const connectFromHandleRef = useRef(connectFromHandle)
+  const connectMode = tool === 'connect' && !viewOnly
+  const nodesInteractive = !viewOnly && !connectMode
+
+  useEffect(() => {
+    connectFromIdRef.current = connectFromId
+    connectFromHandleRef.current = connectFromHandle
+  }, [connectFromId, connectFromHandle])
   const diagramNodes = diagram?.nodes
   const diagramEdges = diagram?.edges
   const reorderZ = useEditorStore((s) => s.reorderZ)
@@ -243,6 +281,22 @@ export function Canvas({
     return set
   }, [diagramNodes])
 
+  const viewHighlight = useMemo(() => {
+    if (!viewOnly || !viewFocusNodeId || !diagramEdges) {
+      return { nodeIds: null as Set<string> | null, edgeIds: null as Set<string> | null }
+    }
+    const nodeIds = new Set<string>([viewFocusNodeId])
+    const edgeIds = new Set<string>()
+    for (const e of diagramEdges) {
+      if (e.source === viewFocusNodeId || e.target === viewFocusNodeId) {
+        edgeIds.add(e.id)
+        nodeIds.add(e.source)
+        nodeIds.add(e.target)
+      }
+    }
+    return { nodeIds, edgeIds }
+  }, [viewOnly, viewFocusNodeId, diagramEdges])
+
   const nodes: FlowNode[] = useMemo(() => {
     if (!diagramNodes) return []
     const selected = new Set(selectedNodeIds)
@@ -250,16 +304,35 @@ export function Canvas({
       const flow = toFlowNode(n, selected.has(n.id), {
         parentCollapsed: Boolean(n.parentId && collapsedParents.has(n.parentId)),
       })
+      const focused = viewHighlight.nodeIds?.has(n.id) ?? false
+      const dimmed = Boolean(viewHighlight.nodeIds && !focused)
       const classes = [
         flow.className,
         connectFromId === n.id ? 'is-connect-source' : '',
         connectTargetId === n.id ? 'is-connect-target' : '',
+        viewOnly && focused ? 'is-view-focus' : '',
+        dimmed ? 'is-view-dimmed' : '',
       ]
         .filter(Boolean)
         .join(' ')
-      return classes ? { ...flow, className: classes } : flow
+      return {
+        ...flow,
+        className: classes || undefined,
+        draggable: nodesInteractive && flow.draggable !== false,
+        connectable: !viewOnly,
+        selectable: true,
+      }
     })
-  }, [diagramNodes, selectedNodeIds, collapsedParents, connectFromId, connectTargetId])
+  }, [
+    diagramNodes,
+    selectedNodeIds,
+    collapsedParents,
+    connectFromId,
+    connectTargetId,
+    viewOnly,
+    viewHighlight,
+    nodesInteractive,
+  ])
 
   const edges: FlowEdge[] = useMemo(() => {
     if (!diagramNodes || !diagramEdges) return []
@@ -274,8 +347,28 @@ export function Canvas({
     )
     return remapped
       .filter((e) => !userHidden.has(e.source) && !userHidden.has(e.target))
-      .map((e) => toFlowEdge(e, selected.has(e.id)))
-  }, [diagramNodes, diagramEdges, selectedEdgeIds, collapsedParents])
+      .map((e) => {
+        const flow = toFlowEdge(e, selected.has(e.id))
+        const focused = viewHighlight.edgeIds?.has(e.id) ?? false
+        const dimmed = Boolean(viewHighlight.edgeIds && !focused)
+        const classes = [
+          flow.className,
+          focused ? 'is-view-flow' : '',
+          dimmed ? 'is-view-dimmed' : '',
+        ]
+          .filter(Boolean)
+          .join(' ')
+        return {
+          ...flow,
+          className: classes || undefined,
+          reconnectable: !viewOnly && flow.reconnectable !== false,
+          data: {
+            diagramEdge: flow.data!.diagramEdge,
+            viewHighlight: focused ? ('flow' as const) : dimmed ? ('dim' as const) : undefined,
+          },
+        }
+      })
+  }, [diagramNodes, diagramEdges, selectedEdgeIds, collapsedParents, viewOnly, viewHighlight])
 
   const clearGuides = useCallback(() => {
     setGuides([])
@@ -284,12 +377,141 @@ export function Canvas({
     draggingRef.current = false
   }, [])
 
+  const clearConnectPending = useCallback(() => {
+    onConnectFromChange?.(null)
+    onConnectFromHandleChange?.(null)
+    onConnectTargetChange?.(null)
+    setConnectPreviewPt(null)
+  }, [onConnectFromChange, onConnectFromHandleChange, onConnectTargetChange])
+
+  const finishConnectClick = useCallback(
+    (targetId: string, targetHandle: string | null) => {
+      const d = useEditorStore.getState().diagram
+      const fromId = connectFromIdRef.current
+      const fromHandle = connectFromHandleRef.current
+      if (!d || !fromId || fromId === targetId) return
+      const sourceNode = d.nodes.find((n) => n.id === fromId)
+      const targetNode = d.nodes.find((n) => n.id === targetId)
+      if (!sourceNode || !targetNode) return
+      const sourceBox = nodeBox(sourceNode, d.nodes)
+      const targetBox = nodeBox(targetNode, d.nodes)
+      const nearest = nearestSidesBetween(sourceBox, targetBox)
+      const sourceHandle =
+        fromHandle && fromHandle !== 'null' ? fromHandle : nearest.sourceHandle
+      const resolvedTarget =
+        targetHandle && targetHandle !== 'null' ? targetHandle : nearest.targetHandle
+      addEdgeFromConnection({
+        source: fromId,
+        target: targetId,
+        sourceHandle,
+        targetHandle: resolvedTarget,
+      })
+      // Chain: next click continues from the target.
+      connectFromIdRef.current = targetId
+      connectFromHandleRef.current = null
+      onConnectFromChange?.(targetId)
+      onConnectFromHandleChange?.(null)
+      onConnectTargetChange?.(null)
+      setSelection([targetId], [])
+    },
+    [
+      addEdgeFromConnection,
+      onConnectFromChange,
+      onConnectFromHandleChange,
+      onConnectTargetChange,
+      setSelection,
+    ],
+  )
+
+  // Click-click on handles in connect mode (RF drag-connect still handles longer gestures).
+  useEffect(() => {
+    if (!connectMode || viewOnly) return
+    const root = wrapperRef.current
+    if (!root) return
+    let down: {
+      nodeId: string
+      handleId: string | null
+      clientX: number
+      clientY: number
+    } | null = null
+
+    let lastHandledAt = 0
+
+    function onPointerDown(e: PointerEvent | MouseEvent) {
+      if (e.button !== 0) return
+      const handle = (e.target as Element | null)?.closest?.('.react-flow__handle') as
+        | HTMLElement
+        | null
+      if (!handle) return
+      const nodeEl = handle.closest('.react-flow__node') as HTMLElement | null
+      const nodeId = nodeEl?.getAttribute('data-id')
+      if (!nodeId) return
+      down = {
+        nodeId,
+        handleId: handle.getAttribute('data-handleid'),
+        clientX: e.clientX,
+        clientY: e.clientY,
+      }
+    }
+
+    function onPointerUp(e: PointerEvent | MouseEvent) {
+      if (!down) return
+      const start = down
+      down = null
+      const dist = Math.hypot(e.clientX - start.clientX, e.clientY - start.clientY)
+      if (dist >= 8) return
+      // Debounce pointer+mouse duplicate delivery for the same click.
+      const now = Date.now()
+      if (now - lastHandledAt < 50) return
+      lastHandledAt = now
+      // Mark so onConnectEnd does not double-handle this short press.
+      connectGestureRef.current = null
+      handleClickHandledRef.current = true
+      window.setTimeout(() => {
+        handleClickHandledRef.current = false
+      }, 0)
+      const fromId = connectFromIdRef.current
+      if (!fromId) {
+        connectFromIdRef.current = start.nodeId
+        connectFromHandleRef.current = start.handleId
+        onConnectFromChange?.(start.nodeId)
+        onConnectFromHandleChange?.(start.handleId)
+        setSelection([start.nodeId], [])
+        setConnectPreviewPt(screenToFlowPosition({ x: e.clientX, y: e.clientY }))
+        return
+      }
+      if (fromId !== start.nodeId) {
+        finishConnectClick(start.nodeId, start.handleId)
+      }
+    }
+
+    root.addEventListener('pointerdown', onPointerDown, true)
+    root.addEventListener('pointerup', onPointerUp, true)
+    root.addEventListener('mousedown', onPointerDown, true)
+    root.addEventListener('mouseup', onPointerUp, true)
+    return () => {
+      root.removeEventListener('pointerdown', onPointerDown, true)
+      root.removeEventListener('pointerup', onPointerUp, true)
+      root.removeEventListener('mousedown', onPointerDown, true)
+      root.removeEventListener('mouseup', onPointerUp, true)
+    }
+  }, [
+    connectMode,
+    viewOnly,
+    onConnectFromChange,
+    onConnectFromHandleChange,
+    finishConnectClick,
+    setSelection,
+    screenToFlowPosition,
+  ])
+
   const onNodesChange = useCallback(
     (changes: NodeChangeset<FlowNode>) => {
+      if (viewOnly) return
       const removes = changes.getByType('remove').map((c) => c.id)
       if (removes.length) removeNodes(removes)
 
-      const positionChanges = changes.getByType('position')
+      const positionChanges = connectMode ? [] : changes.getByType('position')
       const dragging = positionChanges.filter((c) => c.position && c.dragging)
       const settled = positionChanges.filter((c) => c.position && !c.dragging)
 
@@ -362,15 +584,16 @@ export function Canvas({
         resizeNode(change.id, { w: width, h: height }, change.resizing !== true)
       }
     },
-    [moveNodes, removeNodes, resizeNode, altHeld, clearGuides],
+    [moveNodes, removeNodes, resizeNode, altHeld, clearGuides, viewOnly, connectMode],
   )
 
   const onEdgesChange = useCallback(
     (changes: EdgeChangeset<FlowEdge>) => {
+      if (viewOnly) return
       const removes = changes.getByType('remove').map((c) => c.id)
       if (removes.length) removeEdges(removes)
     },
-    [removeEdges],
+    [removeEdges, viewOnly],
   )
 
   const resolveHandles = useCallback((connection: Connection) => {
@@ -401,6 +624,7 @@ export function Canvas({
 
   const onConnect = useCallback(
     (connection: Connection) => {
+      if (viewOnly) return
       if (!connection.source || !connection.target) return
       const { sourceHandle, targetHandle } = resolveHandles(connection)
       addEdgeFromConnection({
@@ -409,13 +633,16 @@ export function Canvas({
         sourceHandle,
         targetHandle,
       })
-      onConnectTargetChange?.(null)
+      // Drag-connect completed; clear any click-connect pending state.
+      clearConnectPending()
+      connectGestureRef.current = null
     },
-    [addEdgeFromConnection, resolveHandles, onConnectTargetChange],
+    [addEdgeFromConnection, resolveHandles, clearConnectPending, viewOnly],
   )
 
   const onReconnect = useCallback<OnReconnect<FlowEdge>>(
     (oldEdge, connection) => {
+      if (viewOnly) return
       if (!connection.source || !connection.target) return
       const { sourceHandle, targetHandle } = resolveHandles(connection)
       reconnectEdge(oldEdge.id, {
@@ -426,7 +653,22 @@ export function Canvas({
       })
       onConnectTargetChange?.(null)
     },
-    [reconnectEdge, resolveHandles, onConnectTargetChange],
+    [reconnectEdge, resolveHandles, onConnectTargetChange, viewOnly],
+  )
+
+  const onConnectStart = useCallback<OnConnectStart>(
+    (event, params) => {
+      if (viewOnly || !params.nodeId) return
+      const clientX = 'clientX' in event ? event.clientX : 0
+      const clientY = 'clientY' in event ? event.clientY : 0
+      connectGestureRef.current = {
+        nodeId: params.nodeId,
+        handleId: params.handleId,
+        clientX,
+        clientY,
+      }
+    },
+    [viewOnly],
   )
 
   const hitTestConnect = useCallback(
@@ -473,6 +715,49 @@ export function Canvas({
     (event: MouseEvent | TouchEvent, state: FinalConnectionState) => {
       onConnectTargetChange?.(null)
       if (reconnectingRef.current) return
+      if (viewOnly) {
+        connectGestureRef.current = null
+        return
+      }
+
+      const gesture = connectGestureRef.current
+      connectGestureRef.current = null
+      if (handleClickHandledRef.current) {
+        handleClickHandledRef.current = false
+        return
+      }
+      const clientX =
+        'clientX' in event
+          ? event.clientX
+          : (event.changedTouches?.[0]?.clientX ?? gesture?.clientX ?? 0)
+      const clientY =
+        'clientY' in event
+          ? event.clientY
+          : (event.changedTouches?.[0]?.clientY ?? gesture?.clientY ?? 0)
+
+      // Short handle press in connect mode = click-click source/target (not a drag).
+      if (connectMode && gesture) {
+        const dist = Math.hypot(clientX - gesture.clientX, clientY - gesture.clientY)
+        if (dist < 8) {
+          const fromId = connectFromIdRef.current
+          if (!fromId) {
+            connectFromIdRef.current = gesture.nodeId
+            connectFromHandleRef.current = gesture.handleId
+            onConnectFromChange?.(gesture.nodeId)
+            onConnectFromHandleChange?.(gesture.handleId)
+            setSelection([gesture.nodeId], [])
+            const flowPt = screenToFlowPosition({ x: clientX, y: clientY })
+            setConnectPreviewPt(flowPt)
+            return
+          }
+          if (fromId !== gesture.nodeId) {
+            finishConnectClick(gesture.nodeId, gesture.handleId)
+            return
+          }
+          return
+        }
+      }
+
       if (state.isValid || !('fromNode' in state) || !state.fromNode) return
       const hit = hitTestConnect(event, state.fromNode.id, state.fromHandle?.id)
       if (!hit) return
@@ -482,8 +767,24 @@ export function Canvas({
         sourceHandle: hit.sourceHandle,
         targetHandle: hit.targetHandle,
       })
+      if (connectMode) {
+        onConnectFromChange?.(hit.targetId)
+        onConnectFromHandleChange?.(null)
+      }
     },
-    [addEdgeFromConnection, hitTestConnect, onConnectTargetChange],
+    [
+      addEdgeFromConnection,
+      hitTestConnect,
+      onConnectTargetChange,
+      viewOnly,
+      connectMode,
+      connectFromId,
+      onConnectFromChange,
+      onConnectFromHandleChange,
+      finishConnectClick,
+      setSelection,
+      screenToFlowPosition,
+    ],
   )
 
   const onReconnectStart = useCallback(() => {
@@ -563,37 +864,31 @@ export function Canvas({
 
   const onNodeClick = useCallback(
     (event: ReactMouseEvent, node: FlowNode) => {
-      if (tool === 'connect') {
+      if (viewOnly) {
         event.stopPropagation()
-        const d = useEditorStore.getState().diagram
-        if (!d) return
+        onViewFocusChange?.(node.id)
+        setSelection([node.id], [])
+        return
+      }
+      if (connectMode) {
+        event.stopPropagation()
+        // Handle clicks are finished in onConnectEnd; ignore if the target was a handle.
+        const target = event.target as HTMLElement | null
+        if (target?.closest?.('.react-flow__handle')) return
         if (!connectFromId) {
           onConnectFromChange?.(node.id)
+          onConnectFromHandleChange?.(null)
           setSelection([node.id], [])
+          setConnectPreviewPt(
+            screenToFlowPosition({ x: event.clientX, y: event.clientY }),
+          )
           return
         }
         if (connectFromId === node.id) {
-          // Keep source for chaining; click another node to draw the next edge.
           setSelection([node.id], [])
           return
         }
-        const sourceNode = d.nodes.find((n) => n.id === connectFromId)
-        const targetNode = d.nodes.find((n) => n.id === node.id)
-        if (sourceNode && targetNode) {
-          const { sourceHandle, targetHandle } = nearestSidesBetween(
-            nodeBox(sourceNode, d.nodes),
-            nodeBox(targetNode, d.nodes),
-          )
-          addEdgeFromConnection({
-            source: connectFromId,
-            target: node.id,
-            sourceHandle,
-            targetHandle,
-          })
-        }
-        // Stay in connect mode for chained connections; next click is the new A.
-        onConnectFromChange?.(node.id)
-        setSelection([node.id], [])
+        finishConnectClick(node.id, null)
         return
       }
       // Backup path: some controlled updates can skip onSelectionChange.
@@ -608,20 +903,24 @@ export function Canvas({
     },
     [
       setSelection,
-      tool,
+      connectMode,
       connectFromId,
       onConnectFromChange,
-      addEdgeFromConnection,
+      onConnectFromHandleChange,
+      finishConnectClick,
+      viewOnly,
+      onViewFocusChange,
+      screenToFlowPosition,
     ],
   )
 
   const onNodeMouseMove = useCallback(
     (_: ReactMouseEvent, node: FlowNode) => {
-      if (tool === 'connect' && connectFromId && connectFromId !== node.id) {
+      if (connectMode && connectFromId && connectFromId !== node.id) {
         onConnectTargetChange?.(node.id)
       }
     },
-    [tool, connectFromId, onConnectTargetChange],
+    [connectMode, connectFromId, onConnectTargetChange],
   )
 
   const onEdgeClick = useCallback(
@@ -634,6 +933,7 @@ export function Canvas({
   const onNodeContextMenu = useCallback(
     (event: ReactMouseEvent, node: FlowNode) => {
       event.preventDefault()
+      if (viewOnly) return
       const state = useEditorStore.getState()
       const ids = state.selectedNodeIds.includes(node.id)
         ? state.selectedNodeIds
@@ -648,22 +948,33 @@ export function Canvas({
         edgeIds: [],
       })
     },
-    [setSelection],
+    [setSelection, viewOnly],
   )
 
-  const onPaneContextMenu = useCallback((event: ReactMouseEvent | MouseEvent) => {
-    event.preventDefault()
-    setContextMenu({
-      x: event.clientX,
-      y: event.clientY,
-      nodeIds: [],
-      edgeIds: [],
-    })
-  }, [])
+  const onPaneContextMenu = useCallback(
+    (event: ReactMouseEvent | MouseEvent) => {
+      event.preventDefault()
+      if (viewOnly) return
+      setContextMenu({
+        x: event.clientX,
+        y: event.clientY,
+        nodeIds: [],
+        edgeIds: [],
+      })
+    },
+    [viewOnly],
+  )
 
   const onPaneClick = useCallback(() => {
     setContextMenu(null)
-  }, [])
+    if (viewOnly) {
+      onViewFocusChange?.(null)
+      return
+    }
+    if (connectMode && connectFromId) {
+      clearConnectPending()
+    }
+  }, [viewOnly, onViewFocusChange, connectMode, connectFromId, clearConnectPending])
 
   const onNodeDragStart = useCallback(
     (event: ReactMouseEvent | MouseEvent | TouchEvent, node: FlowNode) => {
@@ -768,16 +1079,36 @@ export function Canvas({
     [onDropKind, screenToFlowPosition, clearPaletteDrag],
   )
 
+  const connectPreviewStart = useMemo(() => {
+    if (!connectMode || !connectFromId || !diagramNodes) return null
+    const sourceNode = diagramNodes.find((n) => n.id === connectFromId)
+    if (!sourceNode) return null
+    const box = nodeBox(sourceNode, diagramNodes)
+    if (connectFromHandle && connectFromHandle !== 'null') {
+      const side = connectFromHandle as SideHandleId
+      if (side === 'top' || side === 'right' || side === 'bottom' || side === 'left') {
+        return sideMidpoint(box, side)
+      }
+      // Branch / custom handle: approximate at bottom centre of the card.
+      return { x: box.left + box.width / 2, y: box.top + box.height }
+    }
+    if (connectPreviewPt) {
+      return sideMidpoint(box, nearestSideHandle(connectPreviewPt, box))
+    }
+    return { x: box.left + box.width / 2, y: box.top + box.height }
+  }, [connectMode, connectFromId, connectFromHandle, connectPreviewPt, diagramNodes])
+
   if (!diagram) return null
 
   return (
     <div
-      className={`editor-canvas ${paletteDragOver ? 'is-drop-target' : ''}`}
+      className={`editor-canvas ${paletteDragOver ? 'is-drop-target' : ''} ${viewOnly ? 'is-view-only' : ''}`}
       ref={wrapperRef}
-      onDragEnter={onDragEnter}
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
+      onDragEnter={viewOnly ? undefined : onDragEnter}
+      onDragOver={viewOnly ? undefined : onDragOver}
+      onDragLeave={viewOnly ? undefined : onDragLeave}
+      onDrop={viewOnly ? undefined : onDrop}
+      data-view-only={viewOnly ? 'true' : undefined}
     >
       {paletteDragOver ? (
         <div className="canvas-drop-overlay" aria-hidden>
@@ -801,30 +1132,34 @@ export function Canvas({
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onConnectStart={onConnectStart}
         onConnectEnd={onConnectEnd}
         onReconnect={onReconnect}
         onReconnectStart={onReconnectStart}
         onReconnectEnd={onReconnectEnd}
-        onSelectionChange={onSelectionChange}
+        onSelectionChange={viewOnly ? undefined : onSelectionChange}
         onNodeClick={onNodeClick}
-        onEdgeClick={onEdgeClick}
+        onEdgeClick={viewOnly ? undefined : onEdgeClick}
         onNodeContextMenu={onNodeContextMenu}
         onPaneContextMenu={onPaneContextMenu}
         onNodeMouseEnter={onNodeMouseEnter}
         onNodeMouseMove={onNodeMouseMove}
         onNodeMouseLeave={(e) => {
           onNodeMouseLeave(e)
-          if (tool === 'connect') onConnectTargetChange?.(null)
+          if (connectMode) onConnectTargetChange?.(null)
         }}
-        onPaneClick={() => {
-          onPaneClick()
-          if (tool === 'connect') onConnectFromChange?.(null)
-        }}
-        onNodeDragStart={onNodeDragStart}
-        onNodeDragStop={onNodeDragStop}
+        onPaneClick={onPaneClick}
+        onNodeDragStart={viewOnly || connectMode ? undefined : onNodeDragStart}
+        onNodeDragStop={viewOnly || connectMode ? undefined : onNodeDragStop}
         onViewportChange={onViewportChange}
         onPointerMove={(event) => {
-          setLastFlowPoint(screenToFlowPosition({ x: event.clientX, y: event.clientY }))
+          const flowPt = screenToFlowPosition({ x: event.clientX, y: event.clientY })
+          setLastFlowPoint(flowPt)
+          if (connectMode && connectFromId) {
+            setConnectPreviewPt(flowPt)
+            const hit = findNodeAtPoint(diagram.nodes, flowPt, connectFromId)
+            onConnectTargetChange?.(hit && hit.id !== connectFromId ? hit.id : null)
+          }
         }}
         defaultViewport={diagram.viewport}
         fitView={
@@ -835,18 +1170,20 @@ export function Canvas({
         }
         minZoom={0.05}
         maxZoom={4}
-        snapToGrid={snapToGridEnabled && !altHeld}
+        snapToGrid={snapToGridEnabled && !altHeld && !viewOnly}
         snapGrid={[GRID_SIZE, GRID_SIZE]}
-        deleteKeyCode={['Backspace', 'Delete']}
-        multiSelectionKeyCode={['Shift']}
-        selectionOnDrag={!spaceHeld}
-        panOnDrag={spaceHeld ? true : [1, 2]}
+        deleteKeyCode={viewOnly ? null : ['Backspace', 'Delete']}
+        multiSelectionKeyCode={viewOnly ? null : ['Shift']}
+        selectionOnDrag={!spaceHeld && !connectMode && !viewOnly}
+        panOnDrag={spaceHeld || viewOnly ? true : [1, 2]}
         panOnScroll
         zoomOnScroll
         zoomOnPinch
         zoomActivationKeyCode={['Meta', 'Control']}
-        nodesConnectable={tool !== 'connect'}
-        edgesReconnectable
+        nodesDraggable={nodesInteractive}
+        nodesConnectable={!viewOnly}
+        elementsSelectable
+        edgesReconnectable={!viewOnly}
         connectionMode={ConnectionMode.Loose}
         connectionRadius={36}
         connectionLineStyle={{ stroke: 'var(--color-accent)', strokeWidth: 2 }}
@@ -857,7 +1194,8 @@ export function Canvas({
         }}
         className={[
           spaceHeld ? 'is-panning' : '',
-          tool === 'connect' ? 'is-connector-tool' : '',
+          connectMode ? 'is-connector-tool' : '',
+          viewOnly ? 'is-view-only' : '',
         ]
           .filter(Boolean)
           .join(' ') || undefined}
@@ -928,7 +1266,7 @@ export function Canvas({
             />
           </Panel>
         ) : null}
-        {diagram.nodes.some((n) => n.hidden) ? (
+        {diagram.nodes.some((n) => n.hidden) && !viewOnly ? (
           <Panel position="top-right" className="canvas-hidden-panel">
             <button
               type="button"
@@ -939,6 +1277,40 @@ export function Canvas({
               Show all hidden
             </button>
           </Panel>
+        ) : null}
+        {connectMode && connectFromId && connectPreviewStart && connectPreviewPt ? (
+          <ViewportPortal>
+            <svg
+              className="connect-preview-layer"
+              data-testid="connect-preview"
+              style={{
+                position: 'absolute',
+                overflow: 'visible',
+                pointerEvents: 'none',
+                left: 0,
+                top: 0,
+                width: 1,
+                height: 1,
+              }}
+            >
+              <line
+                x1={connectPreviewStart.x}
+                y1={connectPreviewStart.y}
+                x2={connectPreviewPt.x}
+                y2={connectPreviewPt.y}
+                stroke="var(--color-accent)"
+                strokeWidth={2}
+                strokeDasharray="6 4"
+                strokeLinecap="round"
+              />
+              <circle
+                cx={connectPreviewStart.x}
+                cy={connectPreviewStart.y}
+                r={4}
+                fill="var(--color-accent)"
+              />
+            </svg>
+          </ViewportPortal>
         ) : null}
       </ReactFlow>
       {contextMenu ? (

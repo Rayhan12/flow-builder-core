@@ -33,18 +33,20 @@ export function SideHandles({
   return (
     <>
       {SIDE_HANDLE_IDS.filter((id) => !skipped.has(id)).flatMap((id) => [
+        // Target underneath, source on top so pointer-down can start a connection.
+        // ConnectionMode.Loose still accepts drops on either type.
         <Handle
-          key={`${id}-source`}
+          key={`${id}-target`}
           id={id}
-          type="source"
+          type="target"
           position={SIDE_POSITION[id]}
           className={className}
           isConnectable
         />,
         <Handle
-          key={`${id}-target`}
+          key={`${id}-source`}
           id={id}
-          type="target"
+          type="source"
           position={SIDE_POSITION[id]}
           className={className}
           isConnectable

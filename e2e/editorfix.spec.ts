@@ -315,6 +315,9 @@ test.describe('EDITORFIX: connectors, hints, chips, shapes', () => {
     await page.locator(`.react-flow__node[data-id="${c.id}"]`).click({ position: { x: 40, y: 30 } })
     await expect(page.locator('.react-flow__edge')).toHaveCount(2)
 
+    // First Esc cancels the pending chain source; second Esc leaves connect mode.
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('connector-tool')).toHaveAttribute('aria-pressed', 'true')
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('connector-tool')).toHaveAttribute('aria-pressed', 'false')
 

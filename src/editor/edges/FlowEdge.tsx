@@ -286,7 +286,13 @@ export function FlowEdge({
         : '#8b8d98'
       : color.solid
   const strokeWidth = edge?.style?.width ?? (selected || hovered ? 2.5 : 1.5)
-  const dash = edge?.style?.dash === 'dashed' ? '6 4' : undefined
+  const viewHighlight = data?.viewHighlight
+  const dash =
+    viewHighlight === 'flow'
+      ? '8 6'
+      : edge?.style?.dash === 'dashed'
+        ? '6 4'
+        : undefined
   const sourceLabel =
     isLongBranchEdge && branchChipLabel
       ? branchChipLabel
@@ -410,7 +416,18 @@ export function FlowEdge({
         path={path}
         markerStart={markerStartUrl}
         markerEnd={markerEndUrl}
-        style={{ stroke, strokeWidth, strokeDasharray: dash }}
+        style={{
+          stroke: viewHighlight === 'flow' ? 'var(--color-accent)' : stroke,
+          strokeWidth: viewHighlight === 'flow' ? Math.max(strokeWidth, 2.5) : strokeWidth,
+          strokeDasharray: dash,
+        }}
+        className={
+          viewHighlight === 'flow'
+            ? 'is-view-flow-path'
+            : viewHighlight === 'dim'
+              ? 'is-view-dim-path'
+              : undefined
+        }
         interactionWidth={24}
       />
       {/* Wider invisible hit path so hover highlights the edge and its ends. */}

@@ -10,7 +10,10 @@ export type FlowNodeData = {
 }
 
 export type FlowNode = Node<FlowNodeData, NodeKind>
-export type FlowEdge = Edge<{ diagramEdge: DiagramEdge }>
+export type FlowEdge = Edge<{
+  diagramEdge: DiagramEdge
+  viewHighlight?: 'flow' | 'dim'
+}>
 
 export function absolutePosition(
   node: DiagramNode,
