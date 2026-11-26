@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { AiProvidersSection } from '../ai/components/AiProvidersSection'
 import { ModelSwitcher } from '../ai/components/ModelSwitcher'
 import { useAuth } from '../auth/useAuth'
+import { McpConnectSection } from '../components/McpConnectSection'
 import {
   DEFAULT_USER_SETTINGS,
   getUserSettings,
@@ -52,7 +53,7 @@ export function SettingsPage() {
         <div>
           <p className="section-eyebrow">Account</p>
           <h1>Settings</h1>
-          <p className="page-subtitle">AI providers and your personal API keys.</p>
+          <p className="page-subtitle">AI providers, API keys and agent connections.</p>
         </div>
         <Link to="/" className="btn btn-secondary">
           Back to home
@@ -68,6 +69,8 @@ export function SettingsPage() {
       {uid ? (
         <>
           <AiProvidersSection uid={uid} onChange={() => setRevision((n) => n + 1)} />
+
+          <McpConnectSection uid={uid} />
 
           <section className="settings-card">
             <p className="section-eyebrow">Default</p>

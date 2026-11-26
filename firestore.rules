@@ -10,6 +10,7 @@ rules_version = '2';
 //   users/{uid}/agentChats/{chatId}                AI agent panel (per user)
 //   users/{uid}/agentChats/{chatId}/messages/{messageId}
 //   users/{uid}/diagrams/{diagramId}             legacy path (migration)
+//   mcpTokens/{sha256hex}                        MCP personal access tokens (hash only)
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -19,6 +20,26 @@ service cloud.firestore {
 
     function isOwner(uid) {
       return signedIn() && request.auth.uid == uid;
+    }
+
+    function mcpTokenOwner() {
+      return signedIn() && resource.data.uid == request.auth.uid;
+    }
+
+    function validMcpTokenCreate() {
+      return signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.revoked == false
+        && request.resource.data.name is string
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 80;
+    }
+
+    function validMcpTokenUpdate() {
+      return mcpTokenOwner()
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['revoked', 'name', 'lastUsedAt']);
     }
 
     function validDiagramWrite(uid) {
@@ -71,6 +92,15 @@ service cloud.firestore {
           allow read, write: if isOwner(uid);
         }
       }
+    }
+
+    // MCP tokens: only the owner can create, read, update or delete their docs.
+    // Docs are keyed by sha256(token); the raw token is never stored.
+    match /mcpTokens/{tokenHash} {
+      allow create: if validMcpTokenCreate();
+      allow get, list: if mcpTokenOwner();
+      allow update: if validMcpTokenUpdate();
+      allow delete: if mcpTokenOwner();
     }
 
     // Deny everything else.
